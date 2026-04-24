@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, ActivityIndicator, Image, LogBox } from 'react-native';
-import { Audio } from 'expo-av'; // অডিও এবং ব্যাকগ্রাউন্ডের জন্য
-import Video from 'expo-av'; // [NEW]: মেইন ভিডিওর জন্য নেটিভ প্যাকেজ
+import { Video, Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -48,6 +47,7 @@ export default function GlobalPlayer() {
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
+  // [FIX]: অফলাইন ফাইল সবসময় Combined/Muxed মোডে প্লে হবে
   const checkIsMuxed = () => {
       if (isLocalRef.current) return true; 
       global.appSettings = global.appSettings || {};
@@ -84,7 +84,7 @@ export default function GlobalPlayer() {
                   await syncAudioRef.current.unloadAsync();
                   await syncAudioRef.current.loadAsync(
                       { uri: json.audioUrl },
-                      { shouldPlay: true, positionMillis: seekPosRef.current }
+                      { shouldPlay: true, positionMillis: seekPosRef.current, progressUpdateIntervalMillis: 100 }
                   );
               } catch(e) {}
           } else {
@@ -101,24 +101,26 @@ export default function GlobalPlayer() {
     }
   };
 
-  // [UPDATED]: react-native-video এর জন্য নতুন সিঙ্ক লজিক
-  const handleProgress = async (data) => {
-    const currentPosMillis = data.currentTime * 1000;
+  const handlePlaybackStatusUpdate = async (status) => {
+    if (status.isLoaded && seekPosRef.current > 0) {
+        const pos = seekPosRef.current;
+        seekPosRef.current = 0; 
+        try { await videoRef.current.setPositionAsync(pos); } catch(e){}
+    }
 
-    if (streamMode === 'separate' && syncAudioRef.current && !isAudioMode) {
+    if (streamMode === 'separate' && syncAudioRef.current && status.isLoaded && !isAudioMode) {
         try {
             const audioStatus = await syncAudioRef.current.getStatusAsync();
             if (!audioStatus.isLoaded) return;
 
-            if (isPlaying && !audioStatus.isPlaying) {
+            if (status.isPlaying && !audioStatus.isPlaying) {
                 await syncAudioRef.current.playAsync();
-            } else if (!isPlaying && audioStatus.isPlaying) {
+            } else if (!status.isPlaying && audioStatus.isPlaying) {
                 await syncAudioRef.current.pauseAsync();
             }
 
-            // যদি অডিও-ভিডিওর গ্যাপ ৭০০ মিলিসেকেন্ডের বেশি হয়, তবে সিঙ্ক করবে
-            if (isPlaying && Math.abs(currentPosMillis - audioStatus.positionMillis) > 700) {
-                await syncAudioRef.current.setPositionAsync(currentPosMillis);
+            if (status.isPlaying && Math.abs(status.positionMillis - audioStatus.positionMillis) > 500) {
+                await syncAudioRef.current.setPositionAsync(status.positionMillis);
             }
         } catch(e) {}
     }
@@ -130,6 +132,16 @@ export default function GlobalPlayer() {
       if (savedQuality !== currentQuality && currentVideoIdRef.current && !isLocalRef.current) {
           setCurrentQuality(savedQuality); 
 
+          let currentPos = 0;
+          if (videoRef.current) {
+              try {
+                  const status = await videoRef.current.getStatusAsync();
+                  currentPos = status.positionMillis || 0;
+                  await videoRef.current.pauseAsync();
+              } catch(e){}
+          }
+
+          seekPosRef.current = currentPos;
           setIsPlaying(false); 
           setStreamUrl(null);  
           setErrorMsg(null);
@@ -158,18 +170,40 @@ export default function GlobalPlayer() {
             const isMuxed = checkIsMuxed();
 
             if (isMuxed) {
+                if (videoRef.current) {
+                    try { await videoRef.current.playAsync(); } catch(e){}
+                }
                 setIsPlaying(true);
             } else {
+                let currentPos = 0;
+                if (videoRef.current) {
+                    try {
+                        const status = await videoRef.current.getStatusAsync();
+                        currentPos = status.positionMillis || 0;
+                        await videoRef.current.pauseAsync(); 
+                    } catch(e){}
+                }
                 if (syncAudioRef.current) {
                     try { await syncAudioRef.current.pauseAsync(); } catch(e){}
                 }
 
-                let targetAudioUrl = audioStreamUrl || streamUrl;
+                let targetAudioUrl = null; 
+                if (!isLocalRef.current && currentVideoIdRef.current) {
+                    try {
+                        const apiUrl = `${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`)}&quality=240&merge=true&type=audio&t=${Date.now()}`;
+                        const res = await fetch(apiUrl);
+                        const json = await res.json();
+                        if (json.success && json.audioUrl) targetAudioUrl = json.audioUrl;
+                        else if (json.success && json.url) targetAudioUrl = json.url; 
+                    } catch(e) {}
+                }
+
+                if (!targetAudioUrl) targetAudioUrl = audioStreamUrl || streamUrl;
 
                 try {
                     const { sound } = await Audio.Sound.createAsync(
                         { uri: targetAudioUrl },
-                        { shouldPlay: true } 
+                        { shouldPlay: true, positionMillis: currentPos } 
                     );
                     audioRef.current = sound;
                     setIsPlaying(true);
@@ -189,20 +223,35 @@ export default function GlobalPlayer() {
             const isMuxed = checkIsMuxed();
 
             if (isMuxed) {
+                if (videoRef.current) {
+                    try { await videoRef.current.playAsync(); } catch(e){}
+                }
                 setIsPlaying(true);
                 setIsSwitching(false);
                 return;
             }
 
+            let currentPos = 0;
+
             if (audioRef.current) {
                 try {
+                    const status = await audioRef.current.getStatusAsync();
+                    currentPos = status.positionMillis || 0;
                     await audioRef.current.unloadAsync(); 
                 } catch(e){}
                 audioRef.current = null;
             }
 
             try {
+                if (videoRef.current) {
+                    await videoRef.current.setPositionAsync(currentPos);
+                    await videoRef.current.playAsync(); 
+                }
+            } catch(e){}
+
+            try {
                 if (syncAudioRef.current && streamMode === 'separate') {
+                    await syncAudioRef.current.setPositionAsync(currentPos);
                     await syncAudioRef.current.playAsync();
                 }
             } catch(e){}
@@ -248,7 +297,7 @@ export default function GlobalPlayer() {
       pan.setValue({ x: 0, y: 0 });
 
       if (isLocalRef.current) {
-          setStreamMode('combined'); 
+          setStreamMode('combined'); // অফলাইন ভিডিওর জন্য
           setStreamUrl(data.videoData.localUri);
           setAudioStreamUrl(data.videoData.localUri);
           return;
@@ -270,6 +319,7 @@ export default function GlobalPlayer() {
 
     const stopSub = DeviceEventEmitter.addListener('stopVideo', async () => {
       await setBackgroundAudio(false); 
+      if (videoRef.current) { try { await videoRef.current.pauseAsync(); } catch(e){} }
       if (audioRef.current) { try { await audioRef.current.unloadAsync(); audioRef.current = null; } catch(e){} }
       try { await syncAudioRef.current.unloadAsync(); } catch(e){}
 
@@ -279,7 +329,13 @@ export default function GlobalPlayer() {
       setIsPlaying(false);
     });
 
-    return () => { playSub.remove(); minSub.remove(); maxSub.remove(); toggleAudioSub.remove(); stopSub.remove(); };
+    return () => { 
+        playSub.remove(); 
+        minSub.remove(); 
+        maxSub.remove(); 
+        toggleAudioSub.remove(); 
+        stopSub.remove(); 
+    };
   }, [videoData, streamUrl, audioStreamUrl, streamMode]); 
 
   useEffect(() => {
@@ -305,8 +361,11 @@ export default function GlobalPlayer() {
 
   if (playerState === 'hidden') return null;
   const isFull = playerState === 'full';
+
   const isCurrentlyMuxed = checkIsMuxed();
   const shouldVideoPlay = isPlaying && (!isAudioMode || isCurrentlyMuxed);
+
+  // [FIX]: অফলাইন অডিওর জন্য ভিডিও ভিউ হাইড করা হবে না, যাতে কন্ট্রোল প্যানেল কাজ করে
   const hideVideo = isAudioMode && !isLocalRef.current;
   const showCustomPoster = isAudioMode && !isLocalRef.current;
 
@@ -328,21 +387,22 @@ export default function GlobalPlayer() {
                ) : streamUrl ? (
                   <View style={[styles.videoCoreWrapper, hideVideo && styles.hiddenVideoStyle]}>
                     <Video 
-                      key={videoKey}
-                      ref={videoRef}
-                      source={{ uri: streamUrl }}
-                      style={styles.video}
-                      paused={!shouldVideoPlay}  // [NEW]: react-native-video এর জন্য shouldPlay এর বদলে paused
-                      muted={streamMode === 'separate'}
-                      controls={isFull && (!isAudioMode || isLocalRef.current)}
-                      resizeMode={isFull ? "contain" : "cover"}
-                      onProgress={handleProgress} // [NEW]: সিঙ্ক করার ইভেন্ট
-                      onLoad={(meta) => {
-                         if (seekPosRef.current > 0) {
-                             videoRef.current.seek(seekPosRef.current / 1000);
-                             seekPosRef.current = 0;
-                         }
-                      }}
+                      key={videoKey} 
+                      ref={videoRef} 
+                      source={{ uri: streamUrl }} 
+                      style={styles.video} 
+                      shouldPlay={shouldVideoPlay} 
+                      isMuted={streamMode === 'separate'} 
+
+                      // [FIX]: অফলাইন অডিওতেও কন্ট্রোল প্যানেল এবং পোস্টার দেখানো হবে
+                      useNativeControls={isFull && (!isAudioMode || isLocalRef.current)} 
+                      usePoster={isAudioMode && isLocalRef.current}
+                      posterSource={{ uri: videoData?.thumbnail }}
+                      posterStyle={{ resizeMode: 'cover' }}
+
+                      resizeMode={isFull ? "contain" : "cover"} 
+                      progressUpdateIntervalMillis={500}
+                      onPlaybackStatusUpdate={handlePlaybackStatusUpdate} 
                     />
                   </View>
                ) : (
@@ -374,14 +434,17 @@ export default function GlobalPlayer() {
                              const status = await audioRef.current.getStatusAsync();
                              if (status?.isPlaying) { await audioRef.current.pauseAsync(); setIsPlaying(false); } 
                              else { await audioRef.current.playAsync(); setIsPlaying(true); }
-                         } else {
-                             setIsPlaying(!isPlaying);
+                         } else if (videoRef.current) {
+                             const status = await videoRef.current.getStatusAsync();
+                             if (status?.isPlaying) { await videoRef.current.pauseAsync(); setIsPlaying(false); } 
+                             else { await videoRef.current.playAsync(); setIsPlaying(true); }
                          }
                      }}>
                         <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
                      </TouchableOpacity>
                      <TouchableOpacity style={styles.miniCloseBtn} onPress={async () => {
                          await setBackgroundAudio(false); 
+                         if (videoRef.current) { try { await videoRef.current.pauseAsync(); } catch(e){} }
                          if (audioRef.current) { try { await audioRef.current.unloadAsync(); audioRef.current = null; } catch(e){} }
                          try { await syncAudioRef.current.unloadAsync(); } catch(e){}
                          setPlayerState('hidden'); setVideoData(null); setStreamUrl(null); setAudioStreamUrl(null); pan.setValue({ x:0, y:0 });
@@ -404,15 +467,15 @@ const styles = StyleSheet.create({
   miniVideoWrapper: { flex: 1, width: '100%', height: '100%', backgroundColor: '#111', position: 'relative', borderRadius: 12, overflow: 'hidden' },
   videoCoreWrapper: { flex: 1, width: '100%', height: '100%' },
   hiddenVideoStyle: { position: 'absolute', opacity: 0, width: 1, height: 1, left: -9999 },
-  video: { width: '100%', height: '100%', backgroundColor: '#000' },
-  loadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  switchingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  audioPosterContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  audioPosterBg: { ...StyleSheet.absoluteFillObject, opacity: 0.5 },
-  audioPosterOverlay: { alignItems: 'center', justifyContent: 'center' },
-  audioIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(0,191,165,0.3)', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  audioPosterText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)' },
-  miniPlayBtn: { padding: 10 },
-  miniCloseBtn: { padding: 10 },
+  video: { width: '100%', height: '100%' },
+  loadingBox: { flex: 1, justifyContent: 'center', alloadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  switchingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 30 },
+  audioPosterContainer: { flex: 1, width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 10 },
+  audioPosterBg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  audioPosterOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  audioIconCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', marginBottom: 15 },
+  audioPosterText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  miniPlayBtn: { width: 45, height: 45, borderRadius: 25, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  miniCloseBtn: { position: 'absolute', top: 5, right: 5, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }
 });
