@@ -262,4 +262,4 @@ const styles = StyleSheet.create({
   settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 10 },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 15 },
   menuText: { color: '#FFF', marginLeft: 15, fontSize: 16 }
-});
+})
