@@ -20,7 +20,7 @@ export default function GlobalPlayer() {
 
   const seekPosRef = useRef(0);
   const currentVideoIdRef = useRef(null);
-  const isLocalRef = useRef(false); // [FIXED]: এই লাইনটি যুক্ত করা হয়েছে
+  const isLocalRef = useRef(false);
   
   const [playerState, setPlayerState] = useState('hidden'); 
   const [videoData, setVideoData] = useState(null);
@@ -49,9 +49,11 @@ export default function GlobalPlayer() {
     } catch (e) {}
   };
 
+  // [FIX 1]: কোয়ালিটি ডাইনামিক করা হলো
   const fetchStreamUrl = async (vidId, targetQuality) => {
     try {
-      const apiUrl = `${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=720&merge=true`;
+      const numQ = targetQuality ? targetQuality.toString().replace(/\D/g, '') : '720';
+      const apiUrl = `${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=${numQ}&merge=true`;
       const res = await fetch(apiUrl);
       const json = await res.json();
 
@@ -103,13 +105,31 @@ export default function GlobalPlayer() {
       setIsAudioMode(false);
       setBackgroundAudio(false);
       setVideoKey(Date.now().toString());
+      seekPosRef.current = 0;
+      setCurrentCC(null);
+      setCcText("");
       
       if (isLocalRef.current) {
           setStreamMode('combined');
           setStreamUrl(data.videoData.localUri);
           return;
       }
-      fetchStreamUrl(data.videoId, '720p');
+      const initialQuality = global.appSettings?.normalVideo || '720p';
+      fetchStreamUrl(data.videoId, initialQuality);
+    });
+
+    // [FIX 1]: সেটিংস থেকে কোয়ালিটি চেঞ্জ করলে এখানে ধরবে এবং আপডেট করবে
+    const qualitySub = DeviceEventEmitter.addListener('qualityChanged', async (newQuality) => {
+        if (currentVideoIdRef.current && !isLocalRef.current) {
+            if (videoRef.current) {
+                const status = await videoRef.current.getStatusAsync();
+                seekPosRef.current = status.positionMillis || 0;
+                await videoRef.current.pauseAsync();
+            }
+            setStreamUrl(null);
+            setVideoKey(Date.now().toString());
+            fetchStreamUrl(currentVideoIdRef.current, newQuality);
+        }
     });
 
     const toggleAudioSub = DeviceEventEmitter.addListener('toggleAudioMode', async (mode) => {
@@ -132,16 +152,19 @@ export default function GlobalPlayer() {
     const minSub = DeviceEventEmitter.addListener('minimizeVideo', () => setPlayerState('mini'));
     const maxSub = DeviceEventEmitter.addListener('maximizeVideo', () => setPlayerState('full'));
 
-    return () => { playSub.remove(); toggleAudioSub.remove(); minSub.remove(); maxSub.remove(); };
+    return () => { playSub.remove(); toggleAudioSub.remove(); minSub.remove(); maxSub.remove(); qualitySub.remove(); };
   }, [streamMode]);
 
-  // CC (সাবটাইটেল) লোড করার ফাংশন
   const fetchCC = async (langCode) => {
     try {
         const res = await fetch(`${MY_API_SERVER}/api/subtitles?id=${currentVideoIdRef.current}&lang=${langCode}`);
         const json = await res.json();
-        if (json.success) setCurrentCC(json.subtitles);
-        else setCcText("Subtitle not found");
+        if (json.success) {
+            setCurrentCC(json.subtitles);
+        } else {
+            setCcText("Subtitle not available");
+            setTimeout(() => setCcText(""), 3000);
+        }
         setShowSettings(false);
     } catch(e) { setCcText(""); }
   };
@@ -153,61 +176,85 @@ export default function GlobalPlayer() {
     setShowSettings(false);
   };
 
+  // [FIX 2]: প্যান রেসপন্ডারের লজিক আপডেট করে ট্যাপ ডিটেকশন ঠিক করা হলো
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false, 
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5,
+    onPanResponderGrant: () => { pan.setOffset({ x: pan.x._value, y: pan.y._value }); pan.setValue({ x: 0, y: 0 }); },
+    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+    onPanResponderRelease: () => {
+      pan.flattenOffset();
+      let x = pan.x._value, y = pan.y._value;
+      if (x > 10) x = 10; if (x < -(width - MINI_WIDTH - 20)) x = -(width - MINI_WIDTH - 20);
+      if (y > 20) y = 20; if (y < -(height - MINI_HEIGHT - 120)) y = -(height - MINI_HEIGHT - 120);
+      Animated.spring(pan, { toValue: { x, y }, friction: 6, useNativeDriver: false }).start();
+    }
+  })).current;
+
   if (playerState === 'hidden') return null;
   const isFull = playerState === 'full';
 
   return (
-     <Animated.View style={[isFull ? styles.fullContainer : styles.miniContainer, !isFull && { transform: pan.getTranslateTransform() }]} {...(isFull ? {} : PanResponder.create({
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-        onPanResponderRelease: () => pan.flattenOffset()
-     }).panHandlers)}>
-        <View style={styles.videoWrapper}>
-            {streamUrl && (
-                <Video 
-                    key={videoKey}
-                    ref={videoRef} 
-                    source={(isAudioMode && streamMode === 'separate') ? null : { uri: streamUrl }} 
-                    style={styles.video} 
-                    shouldPlay={isPlaying} 
-                    isMuted={streamMode === 'separate'}
-                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                    useNativeControls={isFull && !isAudioMode}
-                    resizeMode="contain" 
-                />
-            )}
-            
-            {isAudioMode && !isLocalRef.current && (
-                <View style={styles.audioPosterContainer}>
-                    <Image source={{ uri: videoData?.thumbnail }} style={styles.audioPosterBg} blurRadius={15} />
-                    <View style={styles.audioPosterOverlay}>
-                        <Ionicons name="musical-notes" size={isFull ? 50 : 20} color="#FFF" />
-                        <Text style={{color: '#FFF', marginTop: 10}}>Background Audio Playing</Text>
+     <Animated.View style={[isFull ? styles.fullContainer : styles.miniContainer, !isFull && { transform: pan.getTranslateTransform() }]} {...(isFull ? {} : panResponder.panHandlers)}>
+        {/* [FIX 2]: TouchableOpacity ফিরিয়ে আনা হলো যাতে মিনি প্লেয়ারে চাপ দিলে আবার প্লেয়ার স্ক্রিনে যায় */}
+        <TouchableOpacity activeOpacity={1} disabled={isFull} style={{flex: 1}} onPress={() => {
+            if (!isFull && videoData) {
+                navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData });
+                setPlayerState('full');
+            }
+        }}>
+            <View style={styles.videoWrapper}>
+                {streamUrl && (
+                    <Video 
+                        key={videoKey}
+                        ref={videoRef} 
+                        source={(isAudioMode && streamMode === 'separate') ? null : { uri: streamUrl }} 
+                        style={styles.video} 
+                        shouldPlay={isPlaying} 
+                        positionMillis={seekPosRef.current}
+                        isMuted={streamMode === 'separate'}
+                        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                        useNativeControls={isFull && !isAudioMode}
+                        resizeMode="contain" 
+                    />
+                )}
+                
+                {isAudioMode && !isLocalRef.current && (
+                    <View style={styles.audioPosterContainer}>
+                        <Image source={{ uri: videoData?.thumbnail }} style={styles.audioPosterBg} blurRadius={15} />
+                        <View style={styles.audioPosterOverlay}>
+                            <Ionicons name="musical-notes" size={isFull ? 50 : 20} color="#FFF" />
+                            <Text style={{color: '#FFF', marginTop: 10}}>Background Audio Playing</Text>
+                        </View>
                     </View>
-                </View>
-            )}
+                )}
 
-            {isFull && ccText !== "" && (
-                <View style={styles.ccOverlay}><Text style={styles.ccTextStyle}>{ccText}</Text></View>
-            )}
+                {isFull && ccText !== "" && (
+                    <View style={styles.ccOverlay}><Text style={styles.ccTextStyle}>{ccText}</Text></View>
+                )}
 
-            {isFull && (
-                <TouchableOpacity style={styles.settingsIcon} onPress={() => { setSettingsTab('main'); setShowSettings(true); }}>
-                    <Ionicons name="settings-sharp" size={24} color="#FFF" />
-                </TouchableOpacity>
-            )}
-
-            {!isFull && (
-                <View style={styles.miniOverlay}>
-                    <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} style={{marginRight: 15}}>
-                        <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
+                {isFull && (
+                    <TouchableOpacity style={styles.settingsIcon} onPress={() => { setSettingsTab('main'); setShowSettings(true); }}>
+                        <Ionicons name="settings-sharp" size={24} color="#FFF" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setPlayerState('hidden')}>
-                        <Ionicons name="close" size={24} color="#FFF" />
-                    </TouchableOpacity>
-                </View>
-            )}
-        </View>
+                )}
+
+                {!isFull && (
+                    <View style={styles.miniOverlay}>
+                        <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} style={{marginRight: 15, padding: 5}}>
+                            <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={async () => {
+                            await setBackgroundAudio(false);
+                            if (videoRef.current) await videoRef.current.pauseAsync();
+                            setPlayerState('hidden'); setStreamUrl(null);
+                        }} style={{padding: 5}}>
+                            <Ionicons name="close" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+        </TouchableOpacity>
 
         <Modal visible={showSettings} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettings(false)}>
@@ -215,7 +262,6 @@ export default function GlobalPlayer() {
                     {settingsTab === 'main' && (
                         <>
                             <TouchableOpacity style={styles.menuItem} onPress={() => setSettingsTab('cc')}>
-                                {/* [FIXED]: আইকনের নাম পরিবর্তন করে chatbubble-ellipses-outline দেওয়া হলো */}
                                 <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFF" />
                                 <Text style={styles.menuText}>CC (Captions)</Text>
                             </TouchableOpacity>
@@ -256,7 +302,7 @@ const styles = StyleSheet.create({
   audioPosterBg: { width: '100%', height: '100%', resizeMode: 'cover' },
   audioPosterOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   ccOverlay: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', zIndex: 50 },
-  ccTextStyle: { color: '#FFF', fontSize: 16, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 10, borderRadius: 5 },
+  ccTextStyle: { color: '#FFF', fontSize: 16, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 10, borderRadius: 5, textAlign: 'center' },
   miniOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 10 },
