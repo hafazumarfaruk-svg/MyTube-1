@@ -5,7 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-LogBox.ignoreLogs(['[expo-av] Expo AV has been deprecated']);
+// expo-av এর সব ধরনের বিরক্তিকর হলুদ Warning চিরতরে হাইড করা হলো
+LogBox.ignoreLogs([
+    '[expo-av] Expo AV has been deprecated',
+    '[expo-av]: Video component from `expo-av` is deprecated',
+    'Video component from `expo-av` is deprecated'
+]);
 
 const { width, height } = Dimensions.get('window');
 const PLAYER_HEIGHT = (width * 9) / 16;
@@ -39,12 +44,11 @@ export default function GlobalPlayer() {
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
-  // [NEW]: হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলিং
   useEffect(() => {
     const backAction = () => {
       if (playerState === 'full') {
         setPlayerState('mini');
-        navigation.navigate('Home'); // সরাসরি হোম স্ক্রিনে চলে আসবে
+        navigation.navigate('Home'); 
         return true;
       }
       return false;
@@ -111,14 +115,13 @@ export default function GlobalPlayer() {
 
   useEffect(() => {
     const playSub = DeviceEventEmitter.addListener('playVideo', async (data) => {
-      // [FIX]: নতুন ভিডিও চাপলে আগের ভিডিওটি "কাট" করার জন্য আনলোড করা
       if (videoRef.current) await videoRef.current.unloadAsync().catch(()=>{});
       await syncAudioRef.current.unloadAsync().catch(()=>{});
 
       currentVideoIdRef.current = data.videoId;
       isLocalRef.current = !!(data.videoData && data.videoData.localUri);
       setVideoData(data.videoData);
-      setPlayerState('full'); // নতুন ভিডিও প্লে করলে সব সময় ফুল স্ক্রিন হবে
+      setPlayerState('full'); 
       setStreamUrl(null);
       setIsAudioMode(false);
       setBackgroundAudio(false);
@@ -188,6 +191,13 @@ export default function GlobalPlayer() {
     } catch(e) { setCcText(""); }
   };
 
+  const changeSpeed = async (speed) => {
+    setPlaybackSpeed(speed);
+    if (videoRef.current) await videoRef.current.setRateAsync(speed, true);
+    if (syncAudioRef.current) await syncAudioRef.current.setRateAsync(speed, true);
+    setShowSettings(false);
+  };
+
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false, 
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5,
@@ -207,74 +217,114 @@ export default function GlobalPlayer() {
 
   return (
      <Animated.View style={[isFull ? styles.fullContainer : styles.miniContainer, !isFull && { transform: pan.getTranslateTransform() }]} {...(isFull ? {} : panResponder.panHandlers)}>
-        <TouchableOpacity activeOpacity={1} disabled={isFull} style={{flex: 1}} onPress={() => {
-            if (!isFull && videoData) {
-                navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData });
-                setPlayerState('full');
-            }
-        }}>
-            <View style={styles.videoWrapper}>
-                {streamUrl && (
-                    <Video 
-                        key={videoKey}
-                        ref={videoRef} 
-                        source={(isAudioMode && streamMode === 'separate') ? null : { uri: streamUrl }} 
-                        style={styles.video} 
-                        shouldPlay={isPlaying} 
-                        positionMillis={seekPosRef.current}
-                        isMuted={streamMode === 'separate'}
-                        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                        useNativeControls={isFull && !isAudioMode}
-                        resizeMode="contain" 
-                    />
-                )}
-                
-                {/* [NEW]: ফুল স্ক্রিনে উপরের ব্যাক বাটন যা হোম এ নিয়ে যাবে */}
-                {isFull && (
-                    <TouchableOpacity style={styles.backBtn} onPress={() => { setPlayerState('mini'); navigation.navigate('Home'); }}>
-                        <Ionicons name="chevron-down" size={30} color="#FFF" />
-                    </TouchableOpacity>
-                )}
-
-                {isFull && ccText !== "" && (
-                    <View style={styles.ccOverlay}><Text style={styles.ccTextStyle}>{ccText}</Text></View>
-                )}
-
-                {isFull && (
-                    <TouchableOpacity style={styles.settingsIcon} onPress={() => { setSettingsTab('main'); setShowSettings(true); }}>
-                        <Ionicons name="settings-sharp" size={24} color="#FFF" />
-                    </TouchableOpacity>
-                )}
-
-                {!isFull && (
-                    <View style={styles.miniOverlay} pointerEvents="box-none">
-                        <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} style={{marginRight: 15, padding: 10}}>
-                            <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={async () => {
-                            await setBackgroundAudio(false);
-                            if (videoRef.current) await videoRef.current.unloadAsync();
-                            setPlayerState('hidden'); setStreamUrl(null);
-                        }} style={{padding: 10}}>
-                            <Ionicons name="close" size={24} color="#FFF" />
-                        </TouchableOpacity>
+        <View style={styles.videoWrapper}>
+            {streamUrl && (
+                <Video 
+                    key={videoKey}
+                    ref={videoRef} 
+                    source={(isAudioMode && streamMode === 'separate') ? null : { uri: streamUrl }} 
+                    style={styles.video} 
+                    shouldPlay={isPlaying} 
+                    positionMillis={seekPosRef.current}
+                    isMuted={streamMode === 'separate'}
+                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                    useNativeControls={isFull && !isAudioMode}
+                    resizeMode="contain" 
+                />
+            )}
+            
+            {isAudioMode && !isLocalRef.current && (
+                <View style={styles.audioPosterContainer}>
+                    <Image source={{ uri: videoData?.thumbnail }} style={styles.audioPosterBg} blurRadius={15} />
+                    <View style={styles.audioPosterOverlay}>
+                        <Ionicons name="musical-notes" size={isFull ? 50 : 20} color="#FFF" />
+                        <Text style={{color: '#FFF', marginTop: 10}}>Background Audio Playing</Text>
                     </View>
-                )}
-            </View>
-        </TouchableOpacity>
+                </View>
+            )}
 
+            {isFull && (
+                <TouchableOpacity style={styles.backBtn} onPress={() => { setPlayerState('mini'); navigation.navigate('Home'); }}>
+                    <Ionicons name="chevron-down" size={30} color="#FFF" />
+                </TouchableOpacity>
+            )}
+
+            {isFull && ccText !== "" && (
+                <View style={styles.ccOverlay}><Text style={styles.ccTextStyle}>{ccText}</Text></View>
+            )}
+
+            {isFull && (
+                <TouchableOpacity style={styles.settingsIcon} onPress={() => { setSettingsTab('main'); setShowSettings(true); }}>
+                    <Ionicons name="settings-sharp" size={24} color="#FFF" />
+                </TouchableOpacity>
+            )}
+
+            {!isFull && (
+                <View style={styles.miniOverlay}>
+                    {/* [NEW]: মিনি প্লেয়ারে ক্লিক করে বড় করার আলাদা বাটন */}
+                    <TouchableOpacity style={{flex: 1, height: '100%', justifyContent: 'center', alignItems: 'center'}} onPress={() => {
+                        if (videoData) {
+                            navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData });
+                            setPlayerState('full');
+                        }
+                    }}>
+                        <Ionicons name="expand" size={26} color="rgba(255,255,255,0.7)" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} style={{padding: 10}}>
+                        <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
+                    </TouchableOpacity>
+
+                    {/* [FIXED]: ক্রস বাটনে চাপ দিলে ভিডিওর সাথে অডিও-ও বন্ধ হবে */}
+                    <TouchableOpacity onPress={async () => {
+                        await setBackgroundAudio(false);
+                        if (videoRef.current) await videoRef.current.unloadAsync().catch(()=>{});
+                        if (syncAudioRef.current) await syncAudioRef.current.unloadAsync().catch(()=>{});
+                        setPlayerState('hidden'); 
+                        setStreamUrl(null);
+                        setIsPlaying(false);
+                    }} style={{padding: 10}}>
+                        <Ionicons name="close" size={24} color="#FFF" />
+                    </TouchableOpacity>
+                </View>
+            )}
+        </View>
+
+        {/* [RESTORED]: ভুলবশত মুছে যাওয়া ভাষা এবং স্পিড সিলেক্ট করার অপশন ফিরিয়ে আনা হলো */}
         <Modal visible={showSettings} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettings(false)}>
-                <View style={styles.settingsMenu}>
+                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     {settingsTab === 'main' && (
                         <>
                             <TouchableOpacity style={styles.menuItem} onPress={() => setSettingsTab('cc')}>
                                 <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFF" />
                                 <Text style={styles.menuText}>CC (Captions)</Text>
                             </TouchableOpacity>
+                            <TouchableOpacity style={styles.menuItem} onPress={() => setSettingsTab('speed')}>
+                                <Ionicons name="speedometer" size={20} color="#FFF" />
+                                <Text style={styles.menuText}>Playback Speed ({playbackSpeed}x)</Text>
+                            </TouchableOpacity>
                         </>
                     )}
-                </View>
+                    {settingsTab === 'cc' && (
+                        ['bn', 'hi', 'en', 'ur'].map(lang => (
+                            <TouchableOpacity key={lang} style={styles.menuItem} onPress={() => fetchCC(lang)}>
+                                <Text style={styles.menuText}>
+                                    {lang === 'bn' ? 'Bengali' : lang === 'hi' ? 'Hindi' : lang === 'en' ? 'English' : 'Urdu'}
+                                </Text>
+                            </TouchableOpacity>
+                        ))
+                    )}
+                    {settingsTab === 'speed' && (
+                        [0.25, 0.5, 1.0, 1.5, 2.0].map(s => (
+                            <TouchableOpacity key={s} style={styles.menuItem} onPress={() => changeSpeed(s)}>
+                                <Text style={[styles.menuText, playbackSpeed === s && {color: '#FF0000'}]}>
+                                    {s === 1.0 ? 'Normal' : s + 'x'}
+                                </Text>
+                            </TouchableOpacity>
+                        ))
+                    )}
+                </TouchableOpacity>
             </TouchableOpacity>
         </Modal>
      </Animated.View>
@@ -288,11 +338,14 @@ const styles = StyleSheet.create({
   video: { width: '100%', height: '100%' },
   backBtn: { position: 'absolute', top: 10, left: 10, zIndex: 100, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 2 },
   settingsIcon: { position: 'absolute', top: 10, right: 10, zIndex: 100 },
+  audioPosterContainer: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  audioPosterBg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  audioPosterOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   ccOverlay: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', zIndex: 50 },
   ccTextStyle: { color: '#FFF', fontSize: 16, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 10, borderRadius: 5, textAlign: 'center' },
   miniOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 10 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 15 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
   menuText: { color: '#FFF', marginLeft: 15, fontSize: 16 }
 });
