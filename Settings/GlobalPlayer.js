@@ -17,6 +17,49 @@ const MINI_WIDTH = width * 0.45;
 const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
+// ==========================================
+// [NEW]: অ্যাপের নিজস্ব VTT কনভার্টার লজিক
+// ==========================================
+const parseVTTData = (rawData) => {
+    const subs = [];
+    const lines = rawData.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    let currentStart = -1, currentEnd = -1, currentText = [];
+
+    const parseTime = (t) => {
+        if (!t) return 0;
+        const p = t.trim().replace(',', '.').split(':');
+        if (p.length === 3) return parseFloat(p[0]) * 3600 + parseFloat(p[1]) * 60 + parseFloat(p[2]);
+        if (p.length === 2) return parseFloat(p[0]) * 60 + parseFloat(p[1]);
+        return parseFloat(p[0]) || 0;
+    };
+
+    const pushSub = () => {
+        if (currentStart !== -1 && currentEnd !== -1 && currentText.length > 0) {
+            const text = currentText.join(' ').replace(/<[^>]+>/g, '').trim();
+            if (text && !text.includes('WEBVTT') && !text.includes('Kind:')) {
+                subs.push({ start: currentStart, end: currentEnd, text });
+            }
+        }
+        currentStart = -1; currentEnd = -1; currentText = [];
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('-->')) {
+            pushSub();
+            const parts = line.split('-->').map(s => s.trim());
+            currentStart = parseTime(parts[0]);
+            currentEnd = parseTime(parts[1].split(' ')[0]);
+        } else if (line === '') {
+            pushSub();
+        } else {
+            if (currentStart !== -1) currentText.push(line);
+        }
+    }
+    pushSub();
+    return subs;
+};
+
 export default function GlobalPlayer() {
   const navigation = useNavigation();
   const videoRef = useRef(null);
@@ -52,7 +95,6 @@ export default function GlobalPlayer() {
       }
       return false;
     };
-
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
   }, [playerState]);
@@ -174,16 +216,24 @@ export default function GlobalPlayer() {
     return () => { playSub.remove(); toggleAudioSub.remove(); minSub.remove(); maxSub.remove(); qualitySub.remove(); };
   }, [streamMode]);
 
-  // [UPDATED]: শুধুমাত্র বাংলা ফেচ করার ফাংশন
+  // [UPDATED]: সার্ভার থেকে কাঁচা ফাইল (Raw File) এনে এখানে কনভার্ট করা হচ্ছে
   const fetchCC = async () => {
     try {
         setCcText(`Loading Bengali CC...`);
         setShowSettings(false);
         const res = await fetch(`${MY_API_SERVER}/api/subtitles?id=${currentVideoIdRef.current}`);
         const json = await res.json();
-        if (json.success && json.subtitles.length > 0) {
-            setCurrentCC(json.subtitles);
-            setCcText("");
+        
+        if (json.success && json.rawData) {
+            // অ্যাপ নিজেই এখন ফাইলটি প্রসেস করবে
+            const parsedSubtitles = parseVTTData(json.rawData);
+            if(parsedSubtitles.length > 0) {
+                setCurrentCC(parsedSubtitles);
+                setCcText("");
+            } else {
+                setCcText(`Bengali CC is Empty`);
+                setTimeout(() => setCcText(""), 3000);
+            }
         } else {
             setCcText(`Bengali CC Not Found`);
             setTimeout(() => setCcText(""), 3000);
@@ -296,7 +346,6 @@ export default function GlobalPlayer() {
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     {settingsTab === 'main' && (
                         <>
-                            {/* [UPDATED]: সরাসরি বাংলা CC অন/অফ করার বাটন */}
                             <TouchableOpacity style={styles.menuItem} onPress={() => {
                                 if (currentCC) {
                                     setCurrentCC(null);
