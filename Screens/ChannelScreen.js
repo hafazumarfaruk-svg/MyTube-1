@@ -14,7 +14,6 @@ export default function ChannelScreen() {
   const route = useRoute();
   const isFocused = useIsFocused();
 
-  // এখানে route.params থেকে channelUrl রিসিভ করা হচ্ছে
   const { channelData = {}, channelName: paramChannelName, channelAvatar: paramAvatar, channelUrl: paramChannelUrl } = route.params || {};
   
   const channelName = channelData?.channel || paramChannelName || 'YouTube Channel';
@@ -54,68 +53,64 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  const extractChannelDataRecursively = (node, categorizedData, tabType) => {
-    const getThumbnail = (thumbnailsObject) => {
-      if (thumbnailsObject && thumbnailsObject.thumbnails && thumbnailsObject.thumbnails.length > 0) {
-        const thumbs = thumbnailsObject.thumbnails;
-        const selectedThumb = thumbQuality === 'Data Saver' ? thumbs[0] : thumbs[thumbs.length - 1];
-        let url = selectedThumb.url;
-        if (url.startsWith('//')) url = 'https:' + url;
-        if(url.includes('?')) url = url.split('?')[0];
-        return url;
-      }
-      return null;
-    };
+  // Memory Crash (Stack Overflow) এড়ানোর জন্য Iterative (Stack-based) সার্চিং লজিক
+  const extractDataIteratively = (rootNode, categorizedData, tabType) => {
+    const stack = [rootNode];
 
-    const parseVid = (vid) => {
-      const duration = vid.lengthText?.simpleText || '';
-      const publishedTime = vid.publishedTimeText?.simpleText || ''; 
-      const title = vid.title?.runs?.[0]?.text || vid.title?.simpleText || 'No Title';
-      const views = vid.shortViewCountText?.simpleText || vid.viewCountText?.simpleText || '';
-      const isLive = JSON.stringify(vid).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
-      const videoId = vid.videoId;
+    while (stack.length > 0) {
+      const node = stack.pop();
 
-      let thumbnailUrl = getThumbnail(vid.thumbnail);
-      if (!thumbnailUrl) thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          if (node[i] && typeof node[i] === 'object') stack.push(node[i]);
+        }
+      } else if (node && typeof node === 'object') {
+        
+        if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+          categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+        }
 
-      return {
-        id: String(videoId),
-        title: String(title),
-        views: String(views),
-        publishedTime: String(publishedTime),
-        duration: String(duration),
-        thumbnail: thumbnailUrl,
-        channel: channelName,
-        avatar: channelAvatar,
-        isLive: isLive
-      };
-    };
+        if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
+          const target = node.videoRenderer || node.gridVideoRenderer;
+          
+          const duration = target.lengthText?.simpleText || '';
+          const publishedTime = target.publishedTimeText?.simpleText || ''; 
+          const title = target.title?.runs?.[0]?.text || target.title?.simpleText || 'No Title';
+          const views = target.shortViewCountText?.simpleText || target.viewCountText?.simpleText || '';
+          const isLive = JSON.stringify(target).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
+          const videoId = target.videoId;
 
-    if (Array.isArray(node)) {
-      node.forEach(child => extractChannelDataRecursively(child, categorizedData, tabType));
-    } else if (node !== null && typeof node === 'object') {
-      
-      if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
-        categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
-      }
+          // 100% Reliable Standard Thumbnail URL (কোনোদিন ফেইল করবে না)
+          const thumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
-      if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
-        const target = node.videoRenderer || node.gridVideoRenderer;
-        categorizedData.Videos.push(parseVid(target));
-      } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
-        const title = node.reelItemRenderer.headline?.simpleText || node.reelItemRenderer.title?.simpleText || 'Short Video';
-        const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
-        const videoId = node.reelItemRenderer.videoId;
+          categorizedData.Videos.push({
+            id: String(videoId), title: String(title), views: String(views),
+            publishedTime: String(publishedTime), duration: String(duration),
+            thumbnail: thumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
+          });
 
-        let shortThumbnailUrl = getThumbnail(node.reelItemRenderer.thumbnail);
-        if (!shortThumbnailUrl) shortThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+        } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
+          const title = node.reelItemRenderer.headline?.simpleText || node.reelItemRenderer.title?.simpleText || 'Short Video';
+          const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
+          const videoId = node.reelItemRenderer.videoId;
 
-        categorizedData.Shorts.push({
-          id: String(videoId), title: String(title), views: String(views),
-          thumbnail: shortThumbnailUrl, channel: channelName, avatar: channelAvatar, duration: 'Short'
-        });
-      } else {
-        Object.values(node).forEach(child => extractChannelDataRecursively(child, categorizedData, tabType));
+          // Shorts এর জন্য Reliable URL
+          const shortThumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
+
+          categorizedData.Shorts.push({
+            id: String(videoId), title: String(title), views: String(views),
+            thumbnail: shortThumbnailUrl, channel: channelName, avatar: channelAvatar, duration: 'Short'
+          });
+        } else {
+          const values = Object.values(node);
+          for (let i = 0; i < values.length; i++) {
+            if (values[i] && typeof values[i] === 'object') stack.push(values[i]);
+          }
+        }
       }
     }
   };
@@ -123,12 +118,9 @@ export default function ChannelScreen() {
   const fetchChannelData = async () => {
     setLoading(true);
     try {
-      // প্রথমে চেক করা হচ্ছে আগের স্ক্রিন থেকে সরাসরি লিংক এসেছে কিনা
       let extractedChannelUrl = paramChannelUrl || channelData?.channelUrl || null;
 
-      // যদি সরাসরি লিংক না থাকে, শুধুমাত্র তখনই এটি নাম দিয়ে সার্চ করবে (Fallback logic)
       if (!extractedChannelUrl) {
-          console.log("No Direct Link Found. Searching by Name...");
           const searchResponse = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channelName)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
           const searchHtml = await searchResponse.text();
           let searchMatch = searchHtml.match(/ytInitialData\s*=\s*({.+?});/) || searchHtml.match(/var ytInitialData = (.*?);<\/script>/);
@@ -153,12 +145,9 @@ export default function ChannelScreen() {
               findChannelUrl(searchData);
             } catch (err) {}
           }
-      } else {
-          console.log("Using Direct Channel URL ->", extractedChannelUrl);
       }
 
       if (!extractedChannelUrl) {
-        console.log("Error: Completely failed to extract channel URL.");
         setLoading(false);
         return; 
       }
@@ -188,7 +177,7 @@ export default function ChannelScreen() {
         if (match && match[1]) {
           try {
             const parsedData = JSON.parse(match[1]);
-            extractChannelDataRecursively(parsedData, categorizedData, tabType);
+            extractDataIteratively(parsedData, categorizedData, tabType); // নতুন স্ট্যাক লজিক কল করা হলো
             return parsedData;
           } catch (error) { return null; }
         }
@@ -248,7 +237,7 @@ export default function ChannelScreen() {
       try { data = JSON.parse(responseText); } catch (err) { setIsLoadingMore(false); return; }
       
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
-      extractChannelDataRecursively(data, newData, activeTab);
+      extractDataIteratively(data, newData, activeTab);
 
       const filteredNewItems = newData[activeTab].filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
       setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...filteredNewItems] }));
