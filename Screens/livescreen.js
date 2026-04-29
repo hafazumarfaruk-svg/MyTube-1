@@ -6,7 +6,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// বাংলাদেশ, ইন্ডিয়া, পাকিস্তানের বিভিন্ন লাইভ চ্যানেলের জন্য ক্যাটাগরি
+// ক্যাটাগরি অনুযায়ী মিক্সড সার্চ কুয়েরি (নিচের ভিডিও ফিডের জন্য)
 const LIVE_QUERIES = [
   "bangladesh live tv channel 24/7",
   "india live tv channel hindi news",
@@ -16,21 +16,43 @@ const LIVE_QUERIES = [
   "live entertainment tv channel"
 ];
 
+// উপরে দেখানোর জন্য সিরিয়াল অনুযায়ী টপ চ্যানেলের লিস্ট
+const TOP_CHANNELS = [
+  // বাংলাদেশ (প্রাধান্য)
+  { id: 'bd1', name: 'Somoy TV', query: 'somoy tv live' },
+  { id: 'bd2', name: 'Channel 24', query: 'channel 24 live bangladesh' },
+  { id: 'bd3', name: 'Jamuna TV', query: 'jamuna tv live' },
+  { id: 'bd4', name: 'Independent', query: 'independent tv live' },
+  { id: 'bd5', name: 'ATN News', query: 'atn news live' },
+  // পাকিস্তান ও ভারত
+  { id: 'pk1', name: 'Geo News', query: 'geo news live pakistan' },
+  { id: 'pk2', name: 'ARY News', query: 'ary news live' },
+  { id: 'in1', name: 'Aaj Tak', query: 'aaj tak live' },
+  { id: 'in2', name: 'ABP News', query: 'abp news live' },
+  // বিশ্ব (অন্যান্য)
+  { id: 'int1', name: 'Al Jazeera', query: 'al jazeera english live' },
+  { id: 'int2', name: 'BBC News', query: 'bbc news live' },
+].map(ch => ({
+  ...ch,
+  // অটোমেটিক লোগো জেনারেট করার জন্য নির্ভরযোগ্য একটি API ব্যবহার করা হয়েছে
+  logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(ch.name)}&background=random&color=fff&rounded=true&bold=true&size=128`
+}));
+
 export default function LiveScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingTopChannel, setLoadingTopChannel] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [activeQuery, setActiveQuery] = useState(LIVE_QUERIES[0]);
 
-  // Immersive Mode: স্ট্যাটাস বার এবং নেভিগেশন বার লুকানো
+  // Immersive Mode
   useEffect(() => {
-    if (isFocused) {
-      if (Platform.OS === 'android') {
-        NavigationBar.setVisibilityAsync("hidden");
-      }
+    if (isFocused && Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync("hidden");
     }
   }, [isFocused]);
 
@@ -59,10 +81,52 @@ export default function LiveScreen() {
     return bestImgUrl.startsWith('//') ? 'https:' + bestImgUrl : bestImgUrl;
   };
 
+  // উপরের লোগোতে ক্লিক করলে সরাসরি লাইভ ভিডিও প্লে করার ফাংশন
+  const playTopChannelLive = async (channel) => {
+    setLoadingTopChannel(true);
+    try {
+      const liveFilter = '&sp=EgJAAQ%253D%253D';
+      const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channel.query)}${liveFilter}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
+      const htmlText = await response.text();
+      let match = htmlText.match(/ytInitialData\s*=\s*({.+?});/);
+
+      if (match && match[1]) {
+        const jsonData = JSON.parse(match[1]);
+        let firstVideo = null;
+
+        const extractFirst = (node) => {
+          if (firstVideo) return;
+          if (Array.isArray(node)) node.forEach(extractFirst);
+          else if (node && typeof node === 'object') {
+            if (node.videoRenderer && node.videoRenderer.videoId) {
+              firstVideo = node.videoRenderer;
+            } else Object.values(node).forEach(extractFirst);
+          }
+        };
+        extractFirst(jsonData);
+
+        if (firstVideo) {
+          const videoData = {
+            id: firstVideo.videoId,
+            title: firstVideo.title?.runs?.[0]?.text || channel.name,
+            channel: firstVideo.ownerText?.runs?.[0]?.text || channel.name,
+            views: 'Live Now',
+          };
+          navigation.navigate('Player', { videoId: firstVideo.videoId, videoData });
+        } else {
+          alert(`বর্তমানে ${channel.name} এর লাইভ ভিডিও পাওয়া যায়নি।`);
+        }
+      }
+    } catch (e) {
+      alert('ভিডিও লোড করতে সমস্যা হচ্ছে।');
+    } finally {
+      setLoadingTopChannel(false);
+    }
+  };
+
   const fetchLiveVideos = async (query, isNewSearch = false) => {
     if (isNewSearch) setLoading(true); 
     try {
-      // &sp=EgJAAQ%253D%253D যুক্ত করা হয়েছে যাতে শুধুমাত্র "Live" ভিডিওগুলোই আসে
       const liveFilter = '&sp=EgJAAQ%253D%253D';
       const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${liveFilter}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
       const htmlText = await response.text();
@@ -86,8 +150,9 @@ export default function LiveScreen() {
             id: vid.videoId, 
             title: vid.title?.runs?.[0]?.text || 'No Title', 
             channel: vid.ownerText?.runs?.[0]?.text || 'Channel',
+            // চ্যানেলের আইডেন্টিফায়ার বের করা হচ্ছে ChannelScreen এ দেওয়ার জন্য
+            channelId: vid.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
             views: vid.shortViewCountText?.simpleText || vid.viewCountText?.simpleText || 'Live Now', 
-            // কতক্ষণ আগে লাইভ শুরু হয়েছে তা বের করা
             timeText: vid.publishedTimeText?.simpleText || vid.dateText?.simpleText || 'Started recently',
             thumbnail: getHighQualityThumbnail(vid.thumbnail, vid.videoId), 
             avatar: getHighQualityThumbnail(vid.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail, null)
@@ -104,33 +169,63 @@ export default function LiveScreen() {
     }
   };
 
+  // উপরের হরাইজন্টাল চ্যানেল লিস্ট রেন্ডার
+  const renderTopChannel = ({ item }) => (
+    <TouchableOpacity style={styles.topChannelItem} onPress={() => playTopChannelLive(item)}>
+      <Image source={{ uri: item.logo }} style={styles.topChannelLogo} />
+      <Text style={styles.topChannelName} numberOfLines={1}>{item.name}</Text>
+    </TouchableOpacity>
+  );
+
+  const ListHeader = () => (
+    <View style={styles.topChannelsContainer}>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={TOP_CHANNELS}
+        keyExtractor={(item) => item.id}
+        renderItem={renderTopChannel}
+        contentContainerStyle={{ paddingHorizontal: 8 }}
+      />
+    </View>
+  );
+
   const renderVideoItem = ({ item }) => (
-    // TouchableOpacity এখন সম্পূর্ণ কার্ডের বাইরে দেওয়া হয়েছে (সমস্যা ১ সমাধান)
-    <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
-      <View style={styles.videoCard}>
+    <View style={styles.videoCard}>
+      {/* থাম্বনেইলে ক্লিক করলে Player ওপেন হবে */}
+      <TouchableOpacity activeOpacity={0.9} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
         <View style={styles.thumbnailContainer}>
           <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
           <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
         </View>
+      </TouchableOpacity>
 
-        <View style={styles.videoInfo}>
+      <View style={styles.videoInfo}>
+        {/* লোগোতে ক্লিক করলে ChannelScreen ওপেন হবে */}
+        <TouchableOpacity onPress={() => navigation.navigate('ChannelScreen', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar })}>
           <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
-          <View style={styles.textContainer}>
+        </TouchableOpacity>
+        
+        <View style={styles.textContainer}>
+          {/* টাইটেলে ক্লিক করলে Player ওপেন হবে */}
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-            {/* ভিউজ এবং কতক্ষণ আগে শুরু হয়েছে তা একসাথে দেখানো হচ্ছে (সমস্যা ৪ সমাধান) */}
+          </TouchableOpacity>
+          
+          {/* চ্যানেলের নামে ক্লিক করলে ChannelScreen ওপেন হবে */}
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('ChannelScreen', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar })}>
             <Text style={styles.meta}>{item.channel} • {item.views} • {item.timeText}</Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* স্ট্যাটাস বার হাইড করা হয়েছে (সমস্যা ৫ সমাধান) */}
       <StatusBar hidden={true} />
       
-      {/* হোম স্ক্রিনের মতো হেডার (সমস্যা ৩ সমাধান) */}
+      {/* হেডার */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
             <Ionicons name="logo-youtube" size={28} color="#FF0000" />
@@ -142,6 +237,15 @@ export default function LiveScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* টপ চ্যানেল লোডিং ইন্ডিকেটর (লোগোতে চাপ দিলে দেখাবে) */}
+      {loadingTopChannel && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FF0000" />
+          <Text style={{ color: '#FFF', marginTop: 10 }}>চ্যানেল চালু হচ্ছে...</Text>
+        </View>
+      )}
+
+      {/* মেইন ভিডিও লিস্ট */}
       {loading && videos.length === 0 ? (
         <ActivityIndicator size="large" color="#FF0000" style={{ flex: 1, justifyContent: 'center', backgroundColor: '#0F0F0F' }} />
       ) : (
@@ -149,6 +253,7 @@ export default function LiveScreen() {
           data={videos} 
           renderItem={renderVideoItem} 
           keyExtractor={(item, index) => item.id + index.toString()} 
+          ListHeaderComponent={ListHeader} // এখানে উপরের চ্যানেল লিস্ট দেওয়া হয়েছে
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF0000" />} 
           onEndReached={loadMoreVideos}
           onEndReachedThreshold={0.5} 
@@ -165,14 +270,25 @@ const styles = StyleSheet.create({
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
   searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+  
+  // Top Channels Styles
+  topChannelsContainer: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#222', marginBottom: 10 },
+  topChannelItem: { alignItems: 'center', marginHorizontal: 8, width: 65 },
+  topChannelLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#333', borderWidth: 1, borderColor: '#444' },
+  topChannelName: { color: '#FFF', fontSize: 11, marginTop: 6, textAlign: 'center' },
+  
+  // Video Card Styles
   videoCard: { marginBottom: 15 },
   thumbnailContainer: { position: 'relative' },
   thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
   liveBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: '#FF0000', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
   liveBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'center' },
-  channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: '#333' },
+  videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'flex-start' },
+  channelAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 12, backgroundColor: '#333' },
   textContainer: { flex: 1, paddingRight: 10 },
-  title: { color: '#FFF', fontSize: 14, fontWeight: '500' },
-  meta: { color: '#AAA', fontSize: 12, marginTop: 4 }
+  title: { color: '#FFF', fontSize: 14, fontWeight: '500', marginBottom: 4 },
+  meta: { color: '#AAA', fontSize: 12 },
+
+  // Overlay Loading
+  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 10 }
 });
