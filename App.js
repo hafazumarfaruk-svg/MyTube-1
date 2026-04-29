@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 // ==========================================
 // ১. Screens ফোল্ডার থেকে ফাইল ইমপোর্ট
 // ==========================================
-import HomeScreen from './Screens/HomeScreen';
+import HomeScreen from './Screens/Homescreen';
 import ChannelScreen from './Screens/ChannelScreen';
 import PlayerScreen from './Screens/PlayerScreen';
 import PlaylistPage from './Screens/PlaylistPage';
