@@ -9,7 +9,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 const { width } = Dimensions.get('window');
 
 // 🔴 এখানে আপনার সার্ভারের আইপি (IP) বা ডোমেইন দিন
-const MY_SERVER_URL = 'http://আপনার-সার্ভারের-আইপি:10000'; 
+const MY_SERVER_URL = 'http://127.0.0.1:10000'; 
 
 // মাসের ভিত্তিতে ভিডিও গ্রুপ করার ফাংশন
 const getGroupName = (timeString) => {
