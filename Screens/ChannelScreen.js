@@ -19,7 +19,7 @@ export default function ChannelScreen() {
 
   const [activeTab, setActiveTab] = useState('Videos');
   const [loading, setLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false); // নতুন ডেটা লোড হওয়ার স্টেট
+  const [isLoadingMore, setIsLoadingMore] = useState(false); // Pagination State
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLiveChannel, setIsLiveChannel] = useState(false); 
   const [liveVideoData, setLiveVideoData] = useState(null);
@@ -29,7 +29,7 @@ export default function ChannelScreen() {
 
   const [tabData, setTabData] = useState({ Videos: [], Shorts: [] });
   
-  // প্যাজিনেশনের জন্য টোকেন এবং API Key স্টেট
+  // Pagination Tokens and API Key
   const [videoToken, setVideoToken] = useState(null);
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
@@ -53,22 +53,43 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // টোকেন এবং ডেটা এক্সট্র্যাক্ট করার আপডেটেড ফাংশন
+  // টোকেন এবং সঠিক থাম্বনেইল এক্সট্র্যাক্ট করার আপডেটেড ফাংশন
   const extractChannelDataRecursively = (node, categorizedData, tabType) => {
+    
+    // YouTube-এর অরিজিনাল JSON থেকে সঠিক থাম্বনেইল বের করার হেল্পার ফাংশন
+    const getThumbnail = (thumbnailsObject) => {
+      if (thumbnailsObject && thumbnailsObject.thumbnails && thumbnailsObject.thumbnails.length > 0) {
+        const thumbs = thumbnailsObject.thumbnails;
+        const selectedThumb = thumbQuality === 'Data Saver' ? thumbs[0] : thumbs[thumbs.length - 1];
+        let url = selectedThumb.url;
+        if (url.startsWith('//')) {
+          url = 'https:' + url;
+        }
+        return url;
+      }
+      return null;
+    };
+
     const parseVid = (vid) => {
       const duration = vid.lengthText?.simpleText || '';
       const publishedTime = vid.publishedTimeText?.simpleText || ''; 
       const title = vid.title?.runs?.[0]?.text || vid.title?.simpleText || 'No Title';
       const views = vid.shortViewCountText?.simpleText || vid.viewCountText?.simpleText || '';
       const isLive = JSON.stringify(vid).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
+      const videoId = vid.videoId;
+
+      let thumbnailUrl = getThumbnail(vid.thumbnail);
+      if (!thumbnailUrl) {
+         thumbnailUrl = thumbQuality === 'Data Saver' ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      }
 
       return {
-        id: String(vid.videoId),
+        id: String(videoId),
         title: String(title),
         views: String(views),
         publishedTime: String(publishedTime),
         duration: String(duration),
-        thumbnail: thumbQuality === 'Data Saver' ? `https://i.ytimg.com/vi/${vid.videoId}/mqdefault.jpg` : `https://i.ytimg.com/vi/${vid.videoId}/hqdefault.jpg`,
+        thumbnail: thumbnailUrl,
         channel: channelName,
         avatar: channelAvatar,
         isLive: isLive
@@ -90,11 +111,18 @@ export default function ChannelScreen() {
       } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
         const title = node.reelItemRenderer.headline?.simpleText || node.reelItemRenderer.title?.simpleText || 'Short Video';
         const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
+        const videoId = node.reelItemRenderer.videoId;
+
+        let shortThumbnailUrl = getThumbnail(node.reelItemRenderer.thumbnail);
+        if (!shortThumbnailUrl) {
+            shortThumbnailUrl = thumbQuality === 'Data Saver' ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+        }
+
         categorizedData.Shorts.push({
-          id: String(node.reelItemRenderer.videoId), 
+          id: String(videoId), 
           title: String(title),
           views: String(views),
-          thumbnail: thumbQuality === 'Data Saver' ? `https://i.ytimg.com/vi/${node.reelItemRenderer.videoId}/mqdefault.jpg` : `https://i.ytimg.com/vi/${node.reelItemRenderer.videoId}/hqdefault.jpg`,
+          thumbnail: shortThumbnailUrl,
           channel: channelName, 
           avatar: channelAvatar, 
           duration: 'Short'
@@ -236,7 +264,7 @@ export default function ChannelScreen() {
           context: {
             client: {
               clientName: 'WEB',
-              clientVersion: '2.20231214.00.00', // YouTube's stable web client version
+              clientVersion: '2.20231214.00.00',
             }
           },
           continuation: currentToken
@@ -248,7 +276,6 @@ export default function ChannelScreen() {
       
       extractChannelDataRecursively(data, newData, activeTab);
 
-      // ডুপ্লিকেট ভিডিও ফিল্টার করা হচ্ছে
       const filteredNewItems = newData[activeTab].filter(
         newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id)
       );
@@ -258,7 +285,6 @@ export default function ChannelScreen() {
         [activeTab]: [...prev[activeTab], ...filteredNewItems]
       }));
 
-      // নতুন টোকেন সেট করা
       if (activeTab === 'Videos') {
         setVideoToken(newData.VideosToken || null);
       } else {
@@ -340,7 +366,6 @@ export default function ChannelScreen() {
     );
   };
   
-  // Footer Loader for Pagination
   const renderFooter = () => {
     if (!isLoadingMore) return null;
     return (
@@ -423,9 +448,9 @@ export default function ChannelScreen() {
         keyExtractor={(item, index) => item.id + index.toString()} 
         ListHeaderComponent={ChannelHeader}
         ListEmptyComponent={renderEmptyComponent}
-        ListFooterComponent={renderFooter} // Footer Loader
-        onEndReached={fetchMoreData} // স্ক্রোল নিচে গেলেই ট্রিগার হবে
-        onEndReachedThreshold={0.5} // স্ক্রিনের অর্ধেক বাকি থাকতেই লোড শুরু হবে
+        ListFooterComponent={renderFooter}
+        onEndReached={fetchMoreData}
+        onEndReachedThreshold={0.5} 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={{ paddingBottom: 80 }} 
       />
