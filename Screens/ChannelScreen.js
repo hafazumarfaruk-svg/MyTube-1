@@ -140,20 +140,24 @@ export default function ChannelScreen() {
       let channelUrl = null;
 
       if (searchMatch && searchMatch[1]) {
-        const searchData = JSON.parse(searchMatch[1]);
-        const findChannelUrl = (node) => {
-          if (channelUrl) return;
-          if (node?.channelRenderer) {
-            const title = node.channelRenderer.title?.simpleText || "";
-            if (title.toLowerCase().includes(channelName.toLowerCase().split(' ')[0])) {
-              channelUrl = node.channelRenderer.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
+        try {
+          const searchData = JSON.parse(searchMatch[1]);
+          const findChannelUrl = (node) => {
+            if (channelUrl) return;
+            if (node?.channelRenderer) {
+              const title = node.channelRenderer.title?.simpleText || "";
+              if (title.toLowerCase().includes(channelName.toLowerCase().split(' ')[0])) {
+                channelUrl = node.channelRenderer.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url;
+              }
             }
-          }
-          if (node && typeof node === 'object') {
-            Object.values(node).forEach(child => findChannelUrl(child));
-          }
-        };
-        findChannelUrl(searchData);
+            if (node && typeof node === 'object') {
+              Object.values(node).forEach(child => findChannelUrl(child));
+            }
+          };
+          findChannelUrl(searchData);
+        } catch (err) {
+          console.log("Search Data Parse Error:", err.message);
+        }
       }
 
       let targetVideosUrl = targetUrl;
@@ -182,11 +186,17 @@ export default function ChannelScreen() {
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
+      // JSON Parse Error থেকে বাঁচতে try-catch যুক্ত করা হলো
       const processMatch = (match, tabType) => {
         if (match && match[1]) {
-          const parsedData = JSON.parse(match[1]);
-          extractChannelDataRecursively(parsedData, categorizedData, tabType);
-          return parsedData;
+          try {
+            const parsedData = JSON.parse(match[1]);
+            extractChannelDataRecursively(parsedData, categorizedData, tabType);
+            return parsedData;
+          } catch (error) {
+            console.log(`JSON Parse Error in ${tabType}:`, error.message);
+            return null;
+          }
         }
         return null;
       };
@@ -234,7 +244,7 @@ export default function ChannelScreen() {
       }
 
     } catch (error) {
-      console.error(error);
+      console.error("Fetch Data Overall Error:", error);
     } finally { 
       setLoading(false); 
     }
@@ -264,7 +274,18 @@ export default function ChannelScreen() {
         })
       });
       
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+
+      // Pagination API থেকে HTML আসলে যাতে ক্র্যাশ না করে
+      try {
+        data = JSON.parse(responseText);
+      } catch (err) {
+        console.log("Pagination JSON Parse Error. Response was likely HTML.");
+        setIsLoadingMore(false);
+        return;
+      }
+      
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
       
       extractChannelDataRecursively(data, newData, activeTab);
