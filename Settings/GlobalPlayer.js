@@ -4,7 +4,7 @@ import { Video, Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import Slider from '@react-native-community/slider'; // [NEW] Slider যুক্ত করা হলো
+import Slider from '@react-native-community/slider';
 
 LogBox.ignoreLogs([
     '[expo-av] Expo AV has been deprecated',
@@ -27,8 +27,6 @@ export default function GlobalPlayer() {
   const currentVideoIdRef = useRef(null);
   const isLocalRef = useRef(false);
   const fetchIdRef = useRef(0); 
-
-  // [NEW] ডাবল ট্যাপ ডিটেক্ট করার জন্য Ref
   const lastTapRef = useRef({ time: 0, side: '' });
 
   const [playerState, setPlayerState] = useState('hidden'); 
@@ -44,20 +42,42 @@ export default function GlobalPlayer() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  // [NEW] Controls Show/Hide State
+  const [showControls, setShowControls] = useState(true);
+  const controlsTimeoutRef = useRef(null);
+
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+
+  // [NEW] 2 Second Auto-Hide Controls Logic
+  const triggerControls = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+    }, 2000); // ২ সেকেন্ড পর হাইড হবে
+  };
 
   useEffect(() => {
     const backAction = () => {
       if (playerState === 'full') {
         setPlayerState('mini');
-        navigation.navigate('Home'); 
+        // [NEW] যে স্ক্রিন থেকে এসেছে সেখানে ফেরত যাবে
+        if (navigation.canGoBack()) {
+            navigation.goBack();
+        } else {
+            navigation.navigate('Home');
+        }
         return true;
       }
       return false;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => backHandler.remove();
-  }, [playerState]);
+    
+    return () => {
+        backHandler.remove();
+        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [playerState, navigation]);
 
   const setBackgroundAudio = async (enable) => {
     try {
@@ -130,6 +150,7 @@ export default function GlobalPlayer() {
       seekPosRef.current = 0;
       setCurrentTime(0);
       setDuration(0);
+      triggerControls(); // ভিডিও প্লে হলে কন্ট্রোল দেখাবে
 
       if (isLocalRef.current) {
           setStreamMode('combined');
@@ -162,6 +183,7 @@ export default function GlobalPlayer() {
     if (videoRef.current) await videoRef.current.setRateAsync(speed, true);
     if (syncAudioRef.current) await syncAudioRef.current.setRateAsync(speed, true);
     setShowSpeedModal(false);
+    triggerControls();
   };
 
   const handleShare = async () => {
@@ -187,7 +209,6 @@ export default function GlobalPlayer() {
     setIsPlaying(false);
   };
 
-  // [NEW] ১০ সেকেন্ড স্কিপ করার লজিক
   const skipVideo = async (amount) => {
     if (videoRef.current && duration > 0) {
         let newPosition = currentTime + amount;
@@ -198,18 +219,17 @@ export default function GlobalPlayer() {
     }
   };
 
-  // [NEW] ডাবল ট্যাপ ডিটেকশন
   const handleVideoTap = (side) => {
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // ৩০০ মিলি সেকেন্ডের মধ্যে ২ বার ট্যাপ করলে কাজ করবে
+    const DOUBLE_TAP_DELAY = 300; 
     
     if (lastTapRef.current.side === side && now - lastTapRef.current.time < DOUBLE_TAP_DELAY) {
-        // ডাবল ট্যাপ হয়েছে! (right = +10s, left = -10s)
         skipVideo(side === 'right' ? 10000 : -10000);
-        lastTapRef.current = { time: 0, side: '' }; // রিসেট
+        lastTapRef.current = { time: 0, side: '' }; 
+        triggerControls();
     } else {
-        // সিঙ্গেল ট্যাপ
         lastTapRef.current = { time: now, side };
+        triggerControls(); // সিঙ্গেল ট্যাপে শুধু কন্ট্রোল দেখাবে
     }
   };
 
@@ -258,7 +278,7 @@ export default function GlobalPlayer() {
                 />
             )}
 
-            {/* [NEW] Double Tap Overlay for Seeking */}
+            {/* Tap Overlay (Always Active for Detection) */}
             {isFull && (
                 <View style={styles.doubleTapOverlay}>
                     <TouchableWithoutFeedback onPress={() => handleVideoTap('left')}>
@@ -270,50 +290,58 @@ export default function GlobalPlayer() {
                 </View>
             )}
 
-            {isFull && (
-                <TouchableOpacity style={styles.backBtn} onPress={() => { setPlayerState('mini'); navigation.navigate('Home'); }}>
-                    <Ionicons name="chevron-down" size={30} color="#FFF" />
-                </TouchableOpacity>
-            )}
-
-            {isFull && (
-                <View style={styles.topRightControls}>
-                    <TouchableOpacity onPress={handleShare} style={styles.iconBtn}>
-                        <Ionicons name="share-social" size={24} color="#FFF" />
+            {/* Controls (Show/Hide based on State) */}
+            {isFull && showControls && (
+                <>
+                    {/* Back Button (Dynamic goBack logic) */}
+                    <TouchableOpacity style={styles.backBtn} onPress={() => { 
+                        setPlayerState('mini'); 
+                        if (navigation.canGoBack()) navigation.goBack(); 
+                        else navigation.navigate('Home'); 
+                    }}>
+                        <Ionicons name="chevron-down" size={32} color="#FFF" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setShowSpeedModal(true)} style={styles.iconBtn}>
-                        <Ionicons name="speedometer" size={24} color="#FFF" />
-                    </TouchableOpacity>
-                </View>
-            )}
 
-            {/* [NEW] Pro Level Floating Controls with Native Slider */}
-            {isFull && (
-                <View style={styles.customControlsContainer}>
-                    <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)}>
-                        <Ionicons name={isPlaying ? "pause" : "play"} size={28} color="#FFF" />
-                    </TouchableOpacity>
-                    
-                    <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
-                    
-                    <Slider
-                        style={styles.slider}
-                        minimumValue={0}
-                        maximumValue={duration > 0 ? duration : 1}
-                        value={currentTime}
-                        onSlidingComplete={async (value) => {
-                            if (videoRef.current) {
-                                await videoRef.current.setPositionAsync(value);
-                                setCurrentTime(value);
-                            }
-                        }}
-                        minimumTrackTintColor="#FF0000"
-                        maximumTrackTintColor="rgba(255, 255, 255, 0.4)"
-                        thumbTintColor="#FFF"
-                    />
+                    {/* Top Right Buttons */}
+                    <View style={styles.topRightControls}>
+                        <TouchableOpacity onPress={handleShare} style={styles.iconBtn}>
+                            <Ionicons name="share-social" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setShowSpeedModal(true)} style={styles.iconBtn}>
+                            <Ionicons name="speedometer" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                    </View>
 
-                    <Text style={styles.timeText}>{formatTime(duration)}</Text>
-                </View>
+                    {/* Center Play/Pause Button */}
+                    <View style={styles.centerPlayPauseContainer} pointerEvents="box-none">
+                        <TouchableOpacity onPress={() => { setIsPlaying(!isPlaying); triggerControls(); }}>
+                            <Ionicons name={isPlaying ? "pause-circle" : "play-circle"} size={65} color="#FFF" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Transparent Slider Area */}
+                    <View style={styles.customControlsContainer}>
+                        <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+                        <Slider
+                            style={styles.slider}
+                            minimumValue={0}
+                            maximumValue={duration > 0 ? duration : 1}
+                            value={currentTime}
+                            onSlidingStart={() => { if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }}
+                            onSlidingComplete={async (value) => {
+                                if (videoRef.current) {
+                                    await videoRef.current.setPositionAsync(value);
+                                    setCurrentTime(value);
+                                }
+                                triggerControls();
+                            }}
+                            minimumTrackTintColor="#FF0000"
+                            maximumTrackTintColor="rgba(255, 255, 255, 0.4)"
+                            thumbTintColor="#FF0000"
+                        />
+                        <Text style={styles.timeText}>{formatTime(duration)}</Text>
+                    </View>
+                </>
             )}
 
             {!isFull && (
@@ -353,23 +381,33 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullContainer: { position: 'absolute', top: 55, left: 0, width: width, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000' },
-  miniContainer: { position: 'absolute', bottom: 80, right: 15, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', zIndex: 9999, borderRadius: 12, overflow: 'hidden', elevation: 15, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 5 },
-  videoWrapper: { flex: 1, position: 'relative' },
+  
+  /* [NEW] Mini Player Green Glow Effect */
+  miniContainer: { 
+      position: 'absolute', bottom: 80, right: 15, width: MINI_WIDTH, height: MINI_HEIGHT, 
+      backgroundColor: '#000', zIndex: 9999, borderRadius: 12, overflow: 'hidden', 
+      elevation: 20, shadowColor: '#00FF00', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 10,
+      borderWidth: 1.5, borderColor: 'rgba(0, 255, 0, 0.5)' // Android Fallback Glow
+  },
+  
+  videoWrapper: { flex: 1, position: 'relative', justifyContent: 'center' },
   video: { width: '100%', height: '100%' },
   
-  /* Double Tap Overlay */
   doubleTapOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, flexDirection: 'row', zIndex: 10 },
   halfScreen: { flex: 1, height: '100%', backgroundColor: 'transparent' },
 
   backBtn: { position: 'absolute', top: 10, left: 10, zIndex: 100, padding: 5 },
   
   topRightControls: { position: 'absolute', top: 10, right: 10, zIndex: 100, flexDirection: 'row', alignItems: 'center' },
-  iconBtn: { marginLeft: 15, padding: 5 },
+  iconBtn: { marginLeft: 15, padding: 5, backgroundColor: 'transparent' },
 
-  /* Pro Level Custom Controls & Slider */
-  customControlsContainer: { position: 'absolute', bottom: 10, left: 10, right: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(20, 20, 20, 0.6)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, elevation: 5, zIndex: 50 },
-  timeText: { color: '#FFF', fontSize: 12, marginHorizontal: 5, fontWeight: 'bold' },
-  slider: { flex: 1, height: 30, marginHorizontal: 5 },
+  /* [NEW] Center Play/Pause Button */
+  centerPlayPauseContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'center', alignItems: 'center', zIndex: 50 },
+
+  /* [NEW] Transparent Background Control Bar */
+  customControlsContainer: { position: 'absolute', bottom: 10, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 50, backgroundColor: 'transparent' },
+  timeText: { color: '#FFF', fontSize: 13, marginHorizontal: 5, fontWeight: 'bold', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: {width: -1, height: 1}, textShadowRadius: 5 },
+  slider: { flex: 1, height: 40, marginHorizontal: 5 },
 
   miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 },
   miniCloseBtn: { position: 'absolute', top: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 15 },
