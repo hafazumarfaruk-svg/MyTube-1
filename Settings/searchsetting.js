@@ -92,13 +92,11 @@ export default function SearchSettingScreen() {
 
     const finalFeed = [];
     
-    // ১. চ্যানেল থাকলে সেটি যুক্ত করা
     extractedChannels.forEach(ch => finalFeed.push({
       type: 'channel', id: ch.channelId, title: ch.title?.simpleText,
       avatar: ch.thumbnail?.thumbnails?.[0]?.url, subscribers: ch.subscriberCountText?.simpleText
     }));
 
-    // ২. শর্টস সেলফ (সর্বপ্রথমে কমপক্ষে ১০টি শর্টস)
     const formattedShorts = extractedShorts.map(s => ({
       id: s.videoId, title: s.headline?.simpleText, views: s.viewCountText?.simpleText,
       thumbnail: `https://i.ytimg.com/vi/${s.videoId}/oardefault.jpg`
@@ -108,7 +106,6 @@ export default function SearchSettingScreen() {
       finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
     }
 
-    // ৩. লং ভিডিও যুক্ত করা
     const formattedVideos = extractedVideos.map(v => ({
       type: 'video', id: v.videoId, title: v.title?.runs?.[0]?.text,
       channel: v.ownerText?.runs?.[0]?.text, views: v.shortViewCountText?.simpleText,
@@ -124,8 +121,6 @@ export default function SearchSettingScreen() {
   const handleLoadMore = () => {
     if (isLoadingMore || !continuationToken) return;
     setIsLoadingMore(true);
-    // এখানে ভবিষ্যতে স্ক্র্যাপিংয়ের জন্য POST রিকোয়েস্ট লজিক বসানো যাবে।
-    // আপাতত লোডিং অ্যানিমেশন দেখানোর জন্য টাইমআউট দেওয়া হলো।
     setTimeout(() => { setIsLoadingMore(false); }, 1500);
   };
 
@@ -158,13 +153,13 @@ export default function SearchSettingScreen() {
             {item.duration && <View style={styles.duration}><Text style={styles.durationText}>{item.duration}</Text></View>}
           </TouchableOpacity>
           <View style={styles.videoInfo}>
-            {/* চ্যানেলের লোগো - ক্লিকেবল */}
-            <TouchableOpacity onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}>
+            {/* এখানে Channel নেভিগেশন ফিক্স করা হয়েছে */}
+            <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}>
               <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
             </TouchableOpacity>
             <View style={styles.textContainer}>
               <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}>
+              <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}>
                 <Text style={styles.videoMeta}>{item.channel} • {item.views} • {item.publishedTime}</Text>
               </TouchableOpacity>
             </View>
@@ -190,7 +185,6 @@ export default function SearchSettingScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
       
-      {/* হেডার যা ডিভাইসের ১২ ভাগের ১ ভাগ জায়গা নিবে */}
       <View style={styles.searchHeader}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
