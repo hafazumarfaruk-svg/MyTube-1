@@ -3,13 +3,12 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, SafeAreaView
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceEventEmitter } from 'react-native'; 
 import * as NavigationBar from 'expo-navigation-bar';
 
 const { width } = Dimensions.get('window');
 
-// 🔴 এখানে আপনার সার্ভারের আইপি (IP) দিন
-const MY_SERVER_URL = 'http://127.0.0.1:10000'; 
+// 🔴 আপনার সার্ভারের আইপি দিন
+const MY_SERVER_URL = 'http://127.0.0.1:10000'; // আপনার আসল আইপি বসান
 
 const getGroupName = (timeString) => {
   const t = (timeString || '').toLowerCase();
@@ -24,42 +23,62 @@ export default function ChannelScreen() {
   const route = useRoute();
   const isFocused = useIsFocused();
 
-  const { channelData = {}, channelName: paramName, channelAvatar: paramAvatar } = route.params || {};
-  const channelName = channelData?.channel || paramName || 'YouTube Channel';
-  const channelAvatar = channelData?.avatar || paramAvatar || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
-
+  const { videoId, channelData = {}, channelAvatar: paramAvatar } = route.params || {};
+  
   const [activeTab, setActiveTab] = useState('Videos');
   const [loading, setLoading] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  
   const [videos, setVideos] = useState([]);
-  const [channelInfo, setChannelInfo] = useState({ banner: null, subs: 'N/A' });
+  const [page, setPage] = useState(1);
+  const [fetchedChannelUrl, setFetchedChannelUrl] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+
+  const [channelInfo, setChannelInfo] = useState({ 
+      name: channelData?.channel || 'YouTube Channel', 
+      banner: null, 
+      subs: 'N/A',
+      avatar: channelData?.avatar || paramAvatar || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg'
+  });
+  
   const [expandedGroups, setExpandedGroups] = useState({});
 
   useEffect(() => { if (isFocused && Platform.OS === 'android') NavigationBar.setVisibilityAsync("hidden"); }, [isFocused]);
-  useEffect(() => { loadGlobals(); fetchFromServer(); }, [channelName]);
+  
+  useEffect(() => { 
+      if(videoId) fetchInitialData(); 
+      loadGlobals(); 
+  }, [videoId]);
 
   const loadGlobals = async () => {
     try {
       const subs = JSON.parse(await AsyncStorage.getItem('subscribedChannels') || '[]');
-      setIsSubscribed(subs.some(sub => sub.name === channelName));
+      setIsSubscribed(subs.some(sub => sub.name === channelInfo.name));
     } catch (e) {}
   };
 
-  // ✅ সার্ভারে চ্যানেলের নাম (Name) পাঠানো হচ্ছে
-  const fetchFromServer = async () => {
+  // ✅ প্রথম পেজের ১০টি ভিডিও আনা
+  const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${MY_SERVER_URL}/api/channel-data?name=${encodeURIComponent(channelName)}`);
+      const response = await fetch(`${MY_SERVER_URL}/api/channel-by-video?videoId=${encodeURIComponent(videoId)}&page=1`);
       const data = await response.json();
 
       if (data.success) {
-        if (data.videos) setVideos(data.videos);
-        if (data.banner || data.subscriberCount) {
-           setChannelInfo({ 
-              banner: data.banner || null, 
-              subs: data.subscriberCount || 'N/A' 
-           });
+        if (data.videos) {
+            setVideos(data.videos);
+            setHasMore(data.videos.length >= 10); // ১০টি ভিডিও আসলে বুঝবে আরও আছে
         }
+        setFetchedChannelUrl(data.channelUrl);
+        setPage(2); // পরবর্তী রিকোয়েস্টের জন্য পেজ ২ সেট করা হলো
+
+        setChannelInfo(prev => ({ 
+            ...prev,
+            name: data.channelName || prev.name,
+            banner: data.banner || prev.banner, 
+            subs: data.subscriberCount || prev.subs 
+        }));
       }
     } catch (error) {
       console.error("Server Fetch Error: ", error);
@@ -68,10 +87,32 @@ export default function ChannelScreen() {
     }
   };
 
+  // ✅ স্ক্রল করলে পরের ১০টি ভিডিও আনা
+  const fetchMoreVideos = async () => {
+      // যদি ভিডিও শেষ হয়ে যায় বা লোড হতে থাকে, তবে রিকোয়েস্ট করবে না
+      if (isFetchingMore || !hasMore || !fetchedChannelUrl) return;
+
+      setIsFetchingMore(true);
+      try {
+        const response = await fetch(`${MY_SERVER_URL}/api/channel-by-video?channelUrl=${encodeURIComponent(fetchedChannelUrl)}&page=${page}`);
+        const data = await response.json();
+
+        if (data.success && data.videos) {
+            setVideos(prev => [...prev, ...data.videos]); // আগের ভিডিওর সাথে নতুনগুলো যুক্ত করা
+            setHasMore(data.videos.length >= 10);
+            setPage(prev => prev + 1); // পেজ ৩, ৪, ৫ এভাবে বাড়তে থাকবে
+        }
+      } catch (error) {
+        console.error("Load More Error: ", error);
+      } finally {
+        setIsFetchingMore(false);
+      }
+  };
+
   const toggleSub = async () => {
     let subs = JSON.parse(await AsyncStorage.getItem('subscribedChannels') || '[]');
-    if (isSubscribed) subs = subs.filter(s => s.name !== channelName);
-    else subs.push({ id: Date.now().toString(), name: channelName, avatar: channelAvatar });
+    if (isSubscribed) subs = subs.filter(s => s.name !== channelInfo.name);
+    else subs.push({ id: Date.now().toString(), name: channelInfo.name, avatar: channelInfo.avatar });
     setIsSubscribed(!isSubscribed);
     await AsyncStorage.setItem('subscribedChannels', JSON.stringify(subs));
   };
@@ -139,6 +180,12 @@ export default function ChannelScreen() {
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
+        
+        // 🚀 নিচে স্ক্রল করলেই পরের ১০টি ভিডিও আসবে
+        onEndReached={fetchMoreVideos}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={isFetchingMore ? <ActivityIndicator size="small" color="#F00" style={{ margin: 20 }} /> : null}
+
         ListHeaderComponent={() => (
           <View>
             <View style={styles.bannerWrap}>
@@ -149,10 +196,10 @@ export default function ChannelScreen() {
             </View>
             <View style={styles.profileBox}>
               <TouchableOpacity activeOpacity={0.8}>
-                <Image source={{ uri: channelAvatar }} style={styles.avatar} />
+                <Image source={{ uri: channelInfo.avatar }} style={styles.avatar} />
               </TouchableOpacity>
               <View style={styles.chInfo}>
-                 <Text style={styles.chTitle}>{channelName}</Text>
+                 <Text style={styles.chTitle}>{channelInfo.name}</Text>
                  <Text style={styles.chMeta}>{channelInfo.subs}</Text>
               </View>
             </View>
