@@ -35,7 +35,6 @@ export default function ChannelScreen() {
   const [apiKey, setApiKey] = useState(null);
 
   useEffect(() => {
-    // 🕵️‍♂️ গোয়েন্দা: ফাইলটি রান হচ্ছে কি না তা নিশ্চিত করতে
     console.log(`\n🕵️‍♂️ [Detective] Channel Screen Opened for: ${channelName}`);
     fetchChannelData();
   }, [channelName]);
@@ -55,7 +54,6 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // Memory Crash (Stack Overflow) এড়ানোর জন্য Iterative (Stack-based) সার্চিং লজিক
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [rootNode];
 
@@ -82,21 +80,29 @@ export default function ChannelScreen() {
           const isLive = JSON.stringify(target).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
           const videoId = target.videoId;
 
-          // 🕵️‍♂️ [Deep Detective] ইউটিউব আসলে ডেটার ভেতর কী থাম্বনেইল পাঠাচ্ছে তা চেক করার জন্য (শুধুমাত্র প্রথম ২টি ভিডিও দেখাবে)
-          if (categorizedData.Videos.length < 2) { 
-              console.log(`\n🕵️‍♂️ [Deep Detective] Video ID: ${videoId}`);
-              console.log(`   YT Original Thumbnails:`, JSON.stringify(target.thumbnail?.thumbnails));
-          }
+          // --- 🕵️‍♂️ আল্টিমেট থাম্বনেইল ফিক্স (আপনার আগের লজিক সহ) ---
+          let finalThumbnailUrl = '';
 
-          // আপনার আগের মূল লজিকটি হুবহু বহাল রাখা হলো
-          const thumbnailUrl = thumbQuality === 'Data Saver' 
-              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
-              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+          // ধাপ ১: ইউটিউবের অরিজিনাল JSON থেকে রিয়েল লিংক খোঁজার চেষ্টা (ছোট চ্যানেলের জন্য)
+          try {
+              if (target.thumbnail && target.thumbnail.thumbnails && target.thumbnail.thumbnails.length > 0) {
+                  let index = thumbQuality === 'Data Saver' ? 0 : target.thumbnail.thumbnails.length - 1;
+                  finalThumbnailUrl = target.thumbnail.thumbnails[index].url;
+                  if (finalThumbnailUrl.startsWith('//')) finalThumbnailUrl = 'https:' + finalThumbnailUrl;
+              }
+          } catch(e) {}
+
+          // ধাপ ২: যদি রিয়েল লিংক না পাওয়া যায়, তবে আপনার আগের লজিক কাজ করবে (বড় চ্যানেলের জন্য)
+          if (!finalThumbnailUrl || finalThumbnailUrl === '') {
+              finalThumbnailUrl = thumbQuality === 'Data Saver' 
+                  ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+                  : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+          }
 
           categorizedData.Videos.push({
             id: String(videoId), title: String(title), views: String(views),
             publishedTime: String(publishedTime), duration: String(duration),
-            thumbnail: thumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
+            thumbnail: finalThumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
           });
 
         } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
@@ -104,10 +110,23 @@ export default function ChannelScreen() {
           const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
           const videoId = node.reelItemRenderer.videoId;
 
-          // Shorts এর জন্য Reliable URL (আগের লজিক)
-          const shortThumbnailUrl = thumbQuality === 'Data Saver' 
-              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
-              : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
+          let shortThumbnailUrl = '';
+
+          // শর্টসের রিয়েল লিংক খোঁজার চেষ্টা 
+          try {
+              if (node.reelItemRenderer.thumbnail && node.reelItemRenderer.thumbnail.thumbnails && node.reelItemRenderer.thumbnail.thumbnails.length > 0) {
+                  let index = thumbQuality === 'Data Saver' ? 0 : node.reelItemRenderer.thumbnail.thumbnails.length - 1;
+                  shortThumbnailUrl = node.reelItemRenderer.thumbnail.thumbnails[index].url;
+                  if (shortThumbnailUrl.startsWith('//')) shortThumbnailUrl = 'https:' + shortThumbnailUrl;
+              }
+          } catch(e) {}
+
+          // আপনার আগের শর্টস লজিক 
+          if (!shortThumbnailUrl || shortThumbnailUrl === '') {
+              shortThumbnailUrl = thumbQuality === 'Data Saver' 
+                  ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+                  : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
+          }
 
           categorizedData.Shorts.push({
             id: String(videoId), title: String(title), views: String(views),
@@ -185,7 +204,7 @@ export default function ChannelScreen() {
         if (match && match[1]) {
           try {
             const parsedData = JSON.parse(match[1]);
-            extractDataIteratively(parsedData, categorizedData, tabType); // স্ট্যাক লজিক কল করা হলো
+            extractDataIteratively(parsedData, categorizedData, tabType);
             return parsedData;
           } catch (error) { return null; }
         }
@@ -284,8 +303,7 @@ export default function ChannelScreen() {
           <Image 
             source={{ uri: item.thumbnail }} 
             style={styles.shortGridImage} 
-            // 🕵️‍♂️ গোয়েন্দা: শর্টসের থাম্বনেইল ফেইল করলে ধরবে
-            onError={(e) => console.error(`🕵️‍♂️ [Detective] Shorts Thumbnail Failed!\nID: ${item.id}\nURL Tested: ${item.thumbnail}\nReason:`, e.nativeEvent.error)}
+            onError={(e) => console.log(`🕵️‍♂️ [Detective] Shorts Failed: ${item.thumbnail}`)}
           />
           <View style={styles.shortViewsOverlay}>
             <Ionicons name="play-outline" size={14} color="#FFF" />
@@ -304,8 +322,7 @@ export default function ChannelScreen() {
           <Image 
             source={{ uri: item.thumbnail }} 
             style={styles.thumbnailImage} 
-            // 🕵️‍♂️ গোয়েন্দা: সাধারণ ভিডিওর থাম্বনেইল ফেইল করলে ধরবে
-            onError={(e) => console.error(`🕵️‍♂️ [Detective] Video Thumbnail Failed!\nID: ${item.id}\nURL Tested: ${item.thumbnail}\nReason:`, e.nativeEvent.error)}
+            onError={(e) => console.log(`🕵️‍♂️ [Detective] Video Failed: ${item.thumbnail}`)}
           />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </TouchableOpacity>
