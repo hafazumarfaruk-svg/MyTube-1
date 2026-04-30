@@ -7,19 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native'; 
 
 const { width } = Dimensions.get('window');
-
-// ডেস্কটপ এবং মোবাইল উভয়ের জন্য স্পেশাল হেডার (SOCS কুকি যুক্ত করা হয়েছে)
-const DESKTOP_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Cookie': 'CONSENT=YES+cb.20230509-09-p0.en+FX+478; SOCS=CAI;' 
-};
-
-const MOBILE_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Cookie': 'CONSENT=YES+cb.20230509-09-p0.en+FX+478; SOCS=CAI;' 
-};
+const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export default function ChannelScreen() {
   const navigation = useNavigation();
@@ -45,11 +33,10 @@ export default function ChannelScreen() {
   const [videoToken, setVideoToken] = useState(null);
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
-  const [isMobileMode, setIsMobileMode] = useState(false); 
 
   useEffect(() => {
-    console.log(`\n========== [CHANNEL SCREEN MOUNTED] ==========`);
-    console.log(`Target Channel: ${channelName}`);
+    // গোয়েন্দা: ফাইলটি রান হচ্ছে কি না তা নিশ্চিত করতে
+    console.log(`\n🕵️‍♂️ [Detective] Channel Screen Opened for: ${channelName}`);
     fetchChannelData();
   }, [channelName]);
 
@@ -68,28 +55,9 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  const getSafeImageUrl = (thumbnailsArray, fallbackVideoId = null, isShort = false) => {
-    let finalUrl = '';
-    try {
-      if (thumbnailsArray && Array.isArray(thumbnailsArray) && thumbnailsArray.length > 0) {
-        const index = thumbQuality === 'Data Saver' ? 0 : thumbnailsArray.length - 1;
-        finalUrl = thumbnailsArray[index]?.url || thumbnailsArray[0]?.url;
-      }
-      if (!finalUrl && fallbackVideoId) {
-        finalUrl = isShort ? `https://i.ytimg.com/vi/${fallbackVideoId}/oardefault.jpg` : `https://i.ytimg.com/vi/${fallbackVideoId}/hqdefault.jpg`;
-      }
-      if (finalUrl && finalUrl.startsWith('//')) finalUrl = `https:${finalUrl}`;
-      else if (finalUrl && finalUrl.startsWith('/')) finalUrl = `https://www.youtube.com${finalUrl}`;
-
-      return finalUrl || 'https://via.placeholder.com/640x360.png?text=No+Thumbnail'; 
-    } catch (err) {
-      return 'https://via.placeholder.com/640x360.png?text=Error';
-    }
-  };
-
+  // Memory Crash (Stack Overflow) এড়ানোর জন্য Iterative (Stack-based) সার্চিং লজিক
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [rootNode];
-    let extractedCount = 0;
 
     while (stack.length > 0) {
       const node = stack.pop();
@@ -104,31 +72,40 @@ export default function ChannelScreen() {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        const target = node.videoRenderer || node.gridVideoRenderer || node.compactVideoRenderer || node.playlistVideoRenderer || node.richItemRenderer?.content?.videoRenderer;
+        if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
+          const target = node.videoRenderer || node.gridVideoRenderer;
 
-        if (target && target.videoId) {
-          const duration = target.lengthText?.simpleText || target.lengthText?.runs?.[0]?.text || '';
-          const publishedTime = target.publishedTimeText?.simpleText || target.publishedTimeText?.runs?.[0]?.text || ''; 
+          const duration = target.lengthText?.simpleText || '';
+          const publishedTime = target.publishedTimeText?.simpleText || ''; 
           const title = target.title?.runs?.[0]?.text || target.title?.simpleText || 'No Title';
-          const views = target.shortViewCountText?.simpleText || target.viewCountText?.simpleText || target.videoInfo?.runs?.[0]?.text || '';
+          const views = target.shortViewCountText?.simpleText || target.viewCountText?.simpleText || '';
           const isLive = JSON.stringify(target).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
           const videoId = target.videoId;
+
+          // 100% Reliable Standard Thumbnail URL
+          const thumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
           categorizedData.Videos.push({
             id: String(videoId), title: String(title), views: String(views),
             publishedTime: String(publishedTime), duration: String(duration),
-            thumbnail: getSafeImageUrl(target.thumbnail?.thumbnails, videoId, false), channel: channelName, avatar: channelAvatar, isLive: isLive
+            thumbnail: thumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
           });
-          extractedCount++;
 
         } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
           const title = node.reelItemRenderer.headline?.simpleText || node.reelItemRenderer.title?.simpleText || 'Short Video';
           const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
           const videoId = node.reelItemRenderer.videoId;
 
+          // Shorts এর জন্য Reliable URL
+          const shortThumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
+
           categorizedData.Shorts.push({
             id: String(videoId), title: String(title), views: String(views),
-            thumbnail: getSafeImageUrl(node.reelItemRenderer.thumbnail?.thumbnails, videoId, true), channel: channelName, avatar: channelAvatar, duration: 'Short'
+            thumbnail: shortThumbnailUrl, channel: channelName, avatar: channelAvatar, duration: 'Short'
           });
         } else {
           const values = Object.values(node);
@@ -138,124 +115,85 @@ export default function ChannelScreen() {
         }
       }
     }
-    console.log(`[Data Extractor] Extracted ${extractedCount} items for tab: ${tabType}`);
-  };
-
-  const extractYtData = (html, sourceName = "Unknown") => {
-    try {
-      if (html.includes('consent.youtube.com')) {
-         console.warn(`[WARNING] YouTube served a Consent Page for ${sourceName}!`);
-      }
-      let jsonStr = html.split('var ytInitialData =')[1] || html.split('window["ytInitialData"] =')[1];
-      if (!jsonStr) {
-         const match = html.match(/ytInitialData\s*=\s*({.+?});/);
-         if (match && match[1]) return JSON.parse(match[1]);
-         return null;
-      }
-      jsonStr = jsonStr.split(';</script>')[0].trim();
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      return null;
-    }
   };
 
   const fetchChannelData = async () => {
     setLoading(true);
-    let usedMobileMode = false;
-    
     try {
       let extractedChannelUrl = paramChannelUrl || channelData?.channelUrl || null;
-      let cleanPath = extractedChannelUrl;
 
-      if (extractedChannelUrl && extractedChannelUrl.includes('youtube.com')) {
-          try { cleanPath = new URL(extractedChannelUrl).pathname; } 
-          catch(e) { cleanPath = extractedChannelUrl.split('youtube.com')[1]; }
-      }
+      if (!extractedChannelUrl) {
+          const searchResponse = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channelName)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
+          const searchHtml = await searchResponse.text();
+          let searchMatch = searchHtml.match(/ytInitialData\s*=\s*({.+?});/) || searchHtml.match(/var ytInitialData = (.*?);<\/script>/);
 
-      if (!cleanPath) {
-          console.log(`[Routing] Searching for: ${channelName}`);
-          const searchResponse = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channelName)}`, { headers: DESKTOP_HEADERS });
-          const searchData = extractYtData(await searchResponse.text(), "Search API");
-
-          if (searchData) {
-            const findChannelUrl = (node) => {
-              if (cleanPath) return; 
-              if (node?.channelRenderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
-                 cleanPath = node.channelRenderer.navigationEndpoint.commandMetadata.webCommandMetadata.url; return;
-              }
-              if (node?.videoRenderer?.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
-                 cleanPath = node.videoRenderer.ownerText.runs[0].navigationEndpoint.commandMetadata.webCommandMetadata.url; return;
-              }
-              if (node && typeof node === 'object') Object.values(node).forEach(child => findChannelUrl(child));
-            };
-            findChannelUrl(searchData);
+          if (searchMatch && searchMatch[1]) {
+            try {
+              const searchData = JSON.parse(searchMatch[1]);
+              const findChannelUrl = (node) => {
+                if (extractedChannelUrl) return; 
+                if (node?.channelRenderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
+                   extractedChannelUrl = node.channelRenderer.navigationEndpoint.commandMetadata.webCommandMetadata.url;
+                   return;
+                }
+                if (node?.videoRenderer?.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
+                   extractedChannelUrl = node.videoRenderer.ownerText.runs[0].navigationEndpoint.commandMetadata.webCommandMetadata.url;
+                   return;
+                }
+                if (node && typeof node === 'object') {
+                  Object.values(node).forEach(child => findChannelUrl(child));
+                }
+              };
+              findChannelUrl(searchData);
+            } catch (err) {}
           }
       }
 
-      if (!cleanPath) {
+      if (!extractedChannelUrl) {
         setLoading(false);
         return; 
       }
 
-      console.log(`[Network] Fetching URL: https://www.youtube.com${cleanPath}/videos`);
+      let targetVideosUrl = `https://www.youtube.com${extractedChannelUrl}/videos`;
+      let targetShortsUrl = `https://www.youtube.com${extractedChannelUrl}/shorts`;
+
       const [videosRes, shortsRes] = await Promise.all([
-        fetch(`https://www.youtube.com${cleanPath}/videos`, { headers: DESKTOP_HEADERS }),
-        fetch(`https://www.youtube.com${cleanPath}/shorts`, { headers: DESKTOP_HEADERS })
+        fetch(targetVideosUrl, { headers: { 'User-Agent': DESKTOP_AGENT } }),
+        fetch(targetShortsUrl, { headers: { 'User-Agent': DESKTOP_AGENT } })
       ]);
 
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
-      if (apiMatch && apiMatch[1]) setApiKey(apiMatch[1]);
+      if (apiMatch && apiMatch[1]) {
+          setApiKey(apiMatch[1]);
+      }
 
-      let parsedVideosData = extractYtData(videosHtml, "Desktop Videos Page");
-      let parsedShortsData = extractYtData(shortsHtml, "Desktop Shorts Page");
+      let videosMatch = videosHtml.match(/ytInitialData\s*=\s*({.+?});/) || videosHtml.match(/var ytInitialData = (.*?);<\/script>/);
+      let shortsMatch = shortsHtml.match(/ytInitialData\s*=\s*({.+?});/) || shortsHtml.match(/var ytInitialData = (.*?);<\/script>/);
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
-      if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
-
-      // 🔥 MOBILE FALLBACK STRATEGY 🔥
-      if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
-          console.log(`[Mobile Fallback] Desktop failed (0 videos). Trying Mobile API at m.youtube.com...`);
+      const processMatch = (match, tabType) => {
+        if (match && match[1]) {
           try {
-              const mobileVideosRes = await fetch(`https://m.youtube.com${cleanPath}/videos`, { headers: MOBILE_HEADERS });
-              const mobileVideosHtml = await mobileVideosRes.text();
-              const mobileVideosData = extractYtData(mobileVideosHtml, "Mobile Videos Page");
-              
-              if (mobileVideosData) {
-                  extractDataIteratively(mobileVideosData, categorizedData, 'Videos');
-                  parsedVideosData = mobileVideosData; 
-                  usedMobileMode = true;
-                  setIsMobileMode(true);
-              }
-          } catch(e) { console.error(`[Mobile Fallback Error]:`, e); }
-      }
+            const parsedData = JSON.parse(match[1]);
+            extractDataIteratively(parsedData, categorizedData, tabType); // নতুন স্ট্যাক লজিক কল করা হলো
+            return parsedData;
+          } catch (error) { return null; }
+        }
+        return null;
+      };
 
-      // HOME FALLBACK
-      if (categorizedData.Videos.length === 0) {
-          console.log(`[Home Fallback] Fetching root channel page...`);
-          try {
-              const homeHeaders = usedMobileMode ? MOBILE_HEADERS : DESKTOP_HEADERS;
-              const homeDomain = usedMobileMode ? 'm.youtube.com' : 'www.youtube.com';
-              const homeRes = await fetch(`https://${homeDomain}${cleanPath}`, { headers: homeHeaders });
-              const parsedHomeData = extractYtData(await homeRes.text(), "Home Page");
-              if (parsedHomeData) {
-                  extractDataIteratively(parsedHomeData, categorizedData, 'Videos');
-                  if (!parsedVideosData) parsedVideosData = parsedHomeData; 
-              }
-          } catch(e) {}
-      }
+      const parsedVideosData = processMatch(videosMatch, 'Videos');
+      processMatch(shortsMatch, 'Shorts');
 
       categorizedData.Videos = categorizedData.Videos.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
       categorizedData.Shorts = categorizedData.Shorts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-      
-      console.log(`[Data Summary] Total Unique Videos: ${categorizedData.Videos.length}, Total Unique Shorts: ${categorizedData.Shorts.length}`);
 
-      setVideoToken(categorizedData.VideosToken || null);
-      setShortToken(categorizedData.ShortsToken || null);
+      setVideoToken(categorizedData.VideosToken);
+      setShortToken(categorizedData.ShortsToken);
 
       const currentLiveVideo = categorizedData.Videos.find(v => v.isLive);
       if (currentLiveVideo) {
@@ -270,42 +208,36 @@ export default function ChannelScreen() {
 
       if (parsedVideosData) {
         const header = parsedVideosData?.header?.c4TabbedHeaderRenderer || parsedVideosData?.header?.pageHeaderRenderer;
-        let bannerSrcArray = header?.banner?.thumbnails || header?.pageHeaderBanner?.pageHeaderBannerImageViewModel?.image?.sources;
-        let finalBanner = getSafeImageUrl(bannerSrcArray);
-        if (finalBanner && !finalBanner.includes('placeholder')) setChannelBanner(finalBanner);
+        let bannerSrc = null;
+        if (header?.banner?.thumbnails) bannerSrc = header.banner.thumbnails;
+        else if (header?.pageHeaderBanner?.pageHeaderBannerImageViewModel?.image?.sources) bannerSrc = header.pageHeaderBanner.pageHeaderBannerImageViewModel.image.sources;
+        if (bannerSrc && bannerSrc.length > 0) setChannelBanner(bannerSrc[bannerSrc.length - 1].url);
 
         const subs = header?.subscriberCountText?.simpleText || header?.content?.pageHeaderViewModel?.metadata?.metadataRows?.[0]?.metadataParts?.[0]?.text?.content;
         if (subs) setSubscriberCount(subs);
       }
 
-    } catch (error) {
-       console.error(`[Fatal Fetch Error]`, error);
-    } finally { 
-       setLoading(false); 
-    }
+    } catch (error) {} finally { setLoading(false); }
   };
 
   const fetchMoreData = async () => {
     const currentToken = activeTab === 'Videos' ? videoToken : shortToken;
     if (!currentToken || isLoadingMore || !apiKey) return;
 
-    console.log(`[Network] Fetching more ${activeTab}...`);
     setIsLoadingMore(true);
     try {
-      const activeHeaders = isMobileMode ? MOBILE_HEADERS : DESKTOP_HEADERS;
-      const clientName = isMobileMode ? 'MWEB' : 'WEB'; 
-      const clientVersion = isMobileMode ? '2.20231214.00.00' : '2.20231214.00.00';
-
       const response = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${apiKey}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...activeHeaders },
+        headers: { 'Content-Type': 'application/json', 'User-Agent': DESKTOP_AGENT },
         body: JSON.stringify({
-          context: { client: { clientName: clientName, clientVersion: clientVersion } },
+          context: { client: { clientName: 'WEB', clientVersion: '2.20231214.00.00' } },
           continuation: currentToken
         })
       });
-      
-      const data = JSON.parse(await response.text());
+      const responseText = await response.text();
+      let data;
+      try { data = JSON.parse(responseText); } catch (err) { setIsLoadingMore(false); return; }
+
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
       extractDataIteratively(data, newData, activeTab);
 
@@ -315,11 +247,7 @@ export default function ChannelScreen() {
       if (activeTab === 'Videos') setVideoToken(newData.VideosToken || null);
       else setShortToken(newData.ShortsToken || null);
 
-    } catch (error) {
-       console.error(`[Load More Network Error]`, error);
-    } finally { 
-       setIsLoadingMore(false); 
-    }
+    } catch (error) {} finally { setIsLoadingMore(false); }
   };
 
   const handleSubscriptionToggle = async () => {
@@ -347,7 +275,12 @@ export default function ChannelScreen() {
     if (activeTab === 'Shorts') {
       return (
         <TouchableOpacity style={styles.shortGridItem} activeOpacity={0.8} onPress={() => navigation.navigate('ShortsScreen', { videoId: item.id, videoData: item })}>
-          <Image source={{ uri: item.thumbnail }} style={styles.shortGridImage} />
+          <Image 
+            source={{ uri: item.thumbnail }} 
+            style={styles.shortGridImage} 
+            // গোয়েন্দা: শর্টসের থাম্বনেইল ফেইল করলে ধরবে
+            onError={(e) => console.error(`🕵️‍♂️ [Detective] Shorts Thumbnail Failed!\nID: ${item.id}\nURL Tested: ${item.thumbnail}\nReason:`, e.nativeEvent.error)}
+          />
           <View style={styles.shortViewsOverlay}>
             <Ionicons name="play-outline" size={14} color="#FFF" />
             <Text style={styles.shortViewsText}>{item.views}</Text>
@@ -362,7 +295,12 @@ export default function ChannelScreen() {
     return (
       <View style={styles.videoCard}>
         <TouchableOpacity style={styles.thumbnailContainer} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-          <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
+          <Image 
+            source={{ uri: item.thumbnail }} 
+            style={styles.thumbnailImage} 
+            // গোয়েন্দা: সাধারণ ভিডিওর থাম্বনেইল ফেইল করলে ধরবে
+            onError={(e) => console.error(`🕵️‍♂️ [Detective] Video Thumbnail Failed!\nID: ${item.id}\nURL Tested: ${item.thumbnail}\nReason:`, e.nativeEvent.error)}
+          />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </TouchableOpacity>
         <View style={styles.videoInfoContainer}>
@@ -393,7 +331,6 @@ export default function ChannelScreen() {
     return <View style={{ paddingVertical: 20 }}><ActivityIndicator size="large" color="#FF0000" /></View>;
   };
 
-  // ✅ এখানেই সেই ফিক্স করা সঠিক ChannelHeader আছে
   const ChannelHeader = () => (
     <View>
       <Image source={{ uri: channelBanner }} style={styles.bannerImage} />
@@ -408,7 +345,7 @@ export default function ChannelScreen() {
             }
           }}
         >
-              <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
+           <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
            {isLiveChannel && (
              <View style={styles.liveBadge}>
                <Text style={styles.liveBadgeText}>LIVE</Text>
