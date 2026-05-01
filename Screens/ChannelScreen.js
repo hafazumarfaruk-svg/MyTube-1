@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, StatusBar, Dimensions, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,7 +24,6 @@ export default function ChannelScreen() {
   const [isLoadingMore, setIsLoadingMore] = useState(false); 
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLiveChannel, setIsLiveChannel] = useState(false); 
-  const [liveVideoData, setLiveVideoData] = useState(null);
   const [thumbQuality, setThumbQuality] = useState('High');
   const [channelBanner, setChannelBanner] = useState('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop');
   const [subscriberCount, setSubscriberCount] = useState('N/A');
@@ -74,6 +72,7 @@ export default function ChannelScreen() {
         }
       } else if (node && typeof node === 'object') {
         
+        // টোকেন আপডেট করা হচ্ছে (যাতে দ্বিতীয় লজিকের পর নতুন টোকেন সেভ হয়)
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
@@ -166,9 +165,12 @@ export default function ChannelScreen() {
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
+      // API Key এক্সট্রাক্ট করা হচ্ছে
+      let extractedApiKey = null;
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
       if (apiMatch && apiMatch[1]) {
-          setApiKey(apiMatch[1]);
+          extractedApiKey = apiMatch[1];
+          setApiKey(extractedApiKey);
       }
 
       let parsedVideosData = parseYtData(videosHtml);
@@ -176,9 +178,11 @@ export default function ChannelScreen() {
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
+      // --- প্রথম লজিক: HTML থেকে ভিডিও লোড ---
       if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
       if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
 
+      // যদি ভিডিও না পাওয়া যায় তবে হোম পেজ থেকে চেষ্টা
       if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
          try {
             const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
@@ -192,14 +196,47 @@ export default function ChannelScreen() {
          } catch (err) {}
       }
 
+      // --- দ্বিতীয় লজিক: টোকেন থাকলে প্রথমবারেই আরও ভিডিও লোড করে নেওয়া (Double Load) ---
+      if (categorizedData.VideosToken && extractedApiKey) {
+        try {
+          const apiRes = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${extractedApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': DESKTOP_AGENT },
+            body: JSON.stringify({
+              context: { client: { clientName: 'WEB', clientVersion: '2.20231214.00.00' } },
+              continuation: categorizedData.VideosToken
+            })
+          });
+          const apiData = JSON.parse(await apiRes.text());
+          extractDataIteratively(apiData, categorizedData, 'Videos'); // নতুন ডেটা যোগ এবং টোকেন আপডেট
+        } catch (e) {}
+      }
+
+      if (categorizedData.ShortsToken && extractedApiKey) {
+        try {
+          const apiRes = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${extractedApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': DESKTOP_AGENT },
+            body: JSON.stringify({
+              context: { client: { clientName: 'WEB', clientVersion: '2.20231214.00.00' } },
+              continuation: categorizedData.ShortsToken
+            })
+          });
+          const apiData = JSON.parse(await apiRes.text());
+          extractDataIteratively(apiData, categorizedData, 'Shorts');
+        } catch (e) {}
+      }
+
+      // ডুপ্লিকেট ভিডিও মুছে ফেলা
       categorizedData.Videos = categorizedData.Videos.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
       categorizedData.Shorts = categorizedData.Shorts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
 
+      // সর্বশেষ টোকেন এবং ডেটা স্টেটে সেট করা
       setVideoToken(categorizedData.VideosToken);
       setShortToken(categorizedData.ShortsToken);
-
       setTabData({ Videos: categorizedData.Videos, Shorts: categorizedData.Shorts });
 
+      // হেডার এবং ব্যানার ডেটা
       if (parsedVideosData) {
         const header = parsedVideosData?.header?.c4TabbedHeaderRenderer || parsedVideosData?.header?.pageHeaderRenderer;
         let bannerSrc = null;
@@ -214,6 +251,7 @@ export default function ChannelScreen() {
     } catch (error) {} finally { setLoading(false); }
   };
 
+  // স্ক্রল করলে পরবর্তী ভিডিও আনার লজিক
   const fetchMoreData = async () => {
     const currentToken = activeTab === 'Videos' ? videoToken : shortToken;
     if (!currentToken || isLoadingMore || !apiKey) return;
@@ -265,7 +303,7 @@ export default function ChannelScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
-  // 🎯 আপডেটেড রেন্ডারার: প্রতিটি লিংক ও তার তথ্যগুলো সুন্দরভাবে সাজানো হয়েছে
+  // 🎯 VidMate/NewPipe স্টাইলের প্রিমিয়াম কার্ড রেন্ডারার
   const renderItem = ({ item }) => {
     return (
       <TouchableOpacity style={styles.appCardContainer} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
@@ -286,13 +324,13 @@ export default function ChannelScreen() {
             
             <View style={styles.metaDataRow}>
               <Ionicons name="eye-outline" size={12} color="#AAA" style={styles.metaIcon} />
-              <Text style={styles.metaText}>{item.views ? item.views : 'No views yet'}</Text>
+              <Text style={styles.metaText}>{item.views ? item.views : 'No views'}</Text>
               <Text style={styles.dotSeparator}> • </Text>
               <Ionicons name="time-outline" size={12} color="#AAA" style={styles.metaIcon} />
               <Text style={styles.metaText}>{item.publishedTime ? item.publishedTime : 'Unknown time'}</Text>
             </View>
 
-            {/* ভিডিওর অরিজিনাল লিংক একটি আলাদা চিপ আকারে */}
+            {/* ভিডিওর লিংক একটি স্পেশাল চিপ আকারে */}
             <View style={styles.linkContainer}>
               <Ionicons name="link" size={12} color="#4A90E2" />
               <Text style={styles.linkText} numberOfLines={1}>{item.value}</Text>
@@ -408,7 +446,7 @@ const styles = StyleSheet.create({
   tabText: { color: '#AAA', fontSize: 15, fontWeight: '500' },
   activeTabText: { color: '#FFF', fontWeight: 'bold' },
   
-  /* --- আপডেটেড কার্ড স্টাইলিং --- */
+  /* --- আপডেটেড কার্ড স্টাইলিং (VidMate/NewPipe Style) --- */
   appCardContainer: { 
     paddingHorizontal: 12,
     paddingVertical: 10,
