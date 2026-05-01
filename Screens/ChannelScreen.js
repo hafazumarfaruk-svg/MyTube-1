@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, StatusBar, Dimensions, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -53,7 +54,6 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার: এটি শুধু টাইটেল এবং লিংক বের করবে (কোনো থাম্বনেইল রেন্ডার করবে না)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -61,7 +61,6 @@ export default function ChannelScreen() {
     while (stack.length > 0) {
       const { node, currentTitle } = stack.pop();
 
-      // টাইটেল মনে রাখার লজিক
       let newTitle = currentTitle;
       if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
@@ -75,26 +74,37 @@ export default function ChannelScreen() {
         }
       } else if (node && typeof node === 'object') {
         
-        // Load More Token সেভ করা
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        // ভিডিও আইডি পেলে লিংক ও টাইটেল সেভ করা
         const hasVideoId = !!node.videoId;
         if (hasVideoId && !seenIds.has(node.videoId)) {
           seenIds.add(node.videoId);
           const vId = node.videoId;
           
+          const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
+          const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
+          const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
+          const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
+          
+          const thumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
           categorizedData[tabType].push({
             id: String(vId),
             title: String(newTitle),
-            value: `https://www.youtube.com/watch?v=${vId}`, // সরাসরি লিংক
+            value: `https://www.youtube.com/watch?v=${vId}`, 
             channel: channelName,
+            duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
+            publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
+            views: views,
+            thumbnail: thumbnailUrl,
+            isLive: isLive
           });
         }
 
-        // গভীরে যাওয়ার লজিক
         const values = Object.values(node);
         for (let i = 0; i < values.length; i++) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
@@ -169,7 +179,6 @@ export default function ChannelScreen() {
       if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
       if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
 
-      // --- Fallback Logic: হোম পেজ চেক ---
       if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
          try {
             const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
@@ -191,7 +200,6 @@ export default function ChannelScreen() {
 
       setTabData({ Videos: categorizedData.Videos, Shorts: categorizedData.Shorts });
 
-      // Header Data
       if (parsedVideosData) {
         const header = parsedVideosData?.header?.c4TabbedHeaderRenderer || parsedVideosData?.header?.pageHeaderRenderer;
         let bannerSrc = null;
@@ -257,12 +265,40 @@ export default function ChannelScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
-  // 🎯 পরিবর্তিত renderItem (শুধু টাইটেল এবং লিংক দেখাবে)
+  // 🎯 আপডেটেড রেন্ডারার: প্রতিটি লিংক ও তার তথ্যগুলো সুন্দরভাবে সাজানো হয়েছে
   const renderItem = ({ item }) => {
     return (
-      <TouchableOpacity style={styles.debugCard} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-        <Text style={styles.debugTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.debugType}>লিংক: <Text style={styles.debugValue}>{item.value}</Text></Text>
+      <TouchableOpacity style={styles.appCardContainer} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
+        <View style={styles.cardLayout}>
+          {/* থাম্বনেইল ও সময় */}
+          <View style={styles.thumbnailWrapper}>
+            <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
+            {item.duration ? (
+              <View style={styles.durationOverlay}>
+                <Text style={styles.durationText}>{item.duration}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* বিস্তারিত তথ্য */}
+          <View style={styles.infoContainer}>
+            <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+            
+            <View style={styles.metaDataRow}>
+              <Ionicons name="eye-outline" size={12} color="#AAA" style={styles.metaIcon} />
+              <Text style={styles.metaText}>{item.views ? item.views : 'No views yet'}</Text>
+              <Text style={styles.dotSeparator}> • </Text>
+              <Ionicons name="time-outline" size={12} color="#AAA" style={styles.metaIcon} />
+              <Text style={styles.metaText}>{item.publishedTime ? item.publishedTime : 'Unknown time'}</Text>
+            </View>
+
+            {/* ভিডিওর অরিজিনাল লিংক একটি আলাদা চিপ আকারে */}
+            <View style={styles.linkContainer}>
+              <Ionicons name="link" size={12} color="#4A90E2" />
+              <Text style={styles.linkText} numberOfLines={1}>{item.value}</Text>
+            </View>
+          </View>
+        </View>
       </TouchableOpacity>
     );
   };
@@ -271,7 +307,8 @@ export default function ChannelScreen() {
     if (loading) return null;
     return (
       <View style={styles.emptyStateContainer}>
-        <Text style={styles.emptyStateText}>{activeTab === 'Shorts' ? 'No short video' : 'No videos found'}</Text>
+        <Ionicons name="videocam-off-outline" size={48} color="#444" />
+        <Text style={styles.emptyStateText}>{activeTab === 'Shorts' ? 'No short videos found' : 'No videos available'}</Text>
       </View>
     );
   };
@@ -288,9 +325,6 @@ export default function ChannelScreen() {
         <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
-          onPress={() => {
-             // লাইভ হ্যান্ডেলিং 
-          }}
         >
            <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
         </TouchableOpacity>
@@ -335,7 +369,7 @@ export default function ChannelScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>{channelName}</Text>
       </View>
       <FlatList 
-        key={activeTab === 'Shorts' ? 'grid-2' : 'list-1'} 
+        key={activeTab === 'Shorts' ? 'list-shorts' : 'list-videos'} 
         data={tabData[activeTab] || []} 
         renderItem={renderItem} 
         keyExtractor={(item, index) => item.id + index.toString()} 
@@ -373,11 +407,92 @@ const styles = StyleSheet.create({
   activeTabButton: { borderBottomWidth: 2, borderBottomColor: '#FFF' },
   tabText: { color: '#AAA', fontSize: 15, fontWeight: '500' },
   activeTabText: { color: '#FFF', fontWeight: 'bold' },
-  // 🎯 নতুন ডিজাইনের জন্য স্টাইল (থাম্বনেইল ছাড়া)
-  debugCard: { backgroundColor: '#111', padding: 15, marginBottom: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', marginHorizontal: 10 },
-  debugTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginBottom: 8, lineHeight: 22 },
-  debugType: { color: '#AAA', fontSize: 13 },
-  debugValue: { color: '#0F0' }, // লিংকের কালার সবুজ
-  emptyStateContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
+  
+  /* --- আপডেটেড কার্ড স্টাইলিং --- */
+  appCardContainer: { 
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1, 
+    borderBottomColor: '#1F1F1F',
+    backgroundColor: '#0F0F0F',
+  },
+  cardLayout: {
+    flexDirection: 'row',
+  },
+  thumbnailWrapper: {
+    width: 150, 
+    height: 85, 
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+    position: 'relative'
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  durationOverlay: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  durationText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  infoContainer: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'flex-start',
+  },
+  videoTitle: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  metaDataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    flexWrap: 'wrap',
+  },
+  metaIcon: {
+    marginRight: 4,
+  },
+  metaText: {
+    color: '#AAA',
+    fontSize: 12,
+  },
+  dotSeparator: {
+    color: '#666',
+    fontSize: 12,
+    marginHorizontal: 4,
+  },
+  linkContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B', 
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    alignSelf: 'flex-start', 
+    marginTop: 2,
+  },
+  linkText: {
+    color: '#4A90E2', 
+    fontSize: 11,
+    marginLeft: 4,
+    flexShrink: 1, 
+  },
+  
+  emptyStateContainer: { padding: 50, alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyStateText: { color: '#AAA', fontSize: 16, fontWeight: '500' }
 });
