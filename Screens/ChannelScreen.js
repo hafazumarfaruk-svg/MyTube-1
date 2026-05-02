@@ -33,6 +33,20 @@ export default function ChannelScreen() {
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
 
+  // 🎯 ক্রমানুসারে সাজানোর লজিক (নতুন থেকে পুরাতন বা পুরাতন থেকে নতুন)
+  // 'newest' = নতুন থেকে পুরাতন, 'oldest' = পুরাতন থেকে নতুন
+  const SORT_ORDER = 'newest'; 
+
+  const getSortedData = (dataArray) => {
+    if (!dataArray) return [];
+    if (SORT_ORDER === 'oldest') {
+      // পুরাতন থেকে নতুন দেখতে চাইলে অ্যারেটি উল্টে দেওয়া হবে
+      return [...dataArray].reverse();
+    }
+    // ডিফল্টভাবে 'newest' (নতুন থেকে পুরাতন) রিটার্ন করবে
+    return dataArray;
+  };
+
   useEffect(() => {
     fetchChannelData();
   }, [channelName]);
@@ -408,7 +422,8 @@ export default function ChannelScreen() {
       </View>
       <FlatList 
         key={activeTab === 'Shorts' ? 'list-shorts' : 'list-videos'} 
-        data={tabData[activeTab] || []} 
+        // 🎯 এখানে getSortedData() লজিক বসানো হয়েছে
+        data={getSortedData(tabData[activeTab])} 
         renderItem={renderItem} 
         keyExtractor={(item, index) => item.id + index.toString()} 
         ListHeaderComponent={ChannelHeader}
