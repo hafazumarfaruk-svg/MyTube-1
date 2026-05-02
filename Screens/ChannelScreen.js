@@ -16,7 +16,7 @@ export default function ChannelScreen() {
 
   const { channelData = {}, channelName: paramChannelName, channelAvatar: paramAvatar, channelUrl: paramChannelUrl } = route.params || {};
 
-  const channelName = channelData?.channel || paramChannelName || 'YouTube Channel';
+  const chann(থঢথঘরডররঢথ)elName = channelData?.channel || paramChannelName || 'YouTube Channel';
   const channelAvatar = channelData?.avatar || paramAvatar || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
 
   const [activeTab, setActiveTab] = useState('Videos');
