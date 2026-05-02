@@ -53,7 +53,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার (ফিক্সড): এখন শুধুমাত্র ভ্যালিড ভিডিও নোড থেকে টাইটেল ও সব তথ্য নেবে
+  // 🧠 স্মার্ট স্ক্যানার: এখন শুধু আসল ভিডিও বক্স থেকে ডেটা নেবে
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -61,9 +61,8 @@ export default function ChannelScreen() {
     while (stack.length > 0) {
       const { node, currentTitle } = stack.pop();
 
-      // টাইটেল মনে রাখার লজিক
       let newTitle = currentTitle;
-      if (node && typeof node === 'object' && !Array.isArray(node)) {
+      if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
         else if (node.title?.simpleText) newTitle = node.title.simpleText;
         else if (node.headline?.simpleText) newTitle = node.headline.simpleText;
@@ -75,31 +74,28 @@ export default function ChannelScreen() {
         }
       } else if (node && typeof node === 'object') {
 
-        // Load More Token সেভ করা
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
         const vId = node.videoId;
         
-        // 💡 মেইন ফিক্স: ভিডিও আইডি থাকার পাশাপাশি অবশ্যই টাইটেল বা অন্যান্য মেটাডেটা থাকতে হবে
-        const isRealVideoObj = vId && (node.title || node.lengthText || node.viewCountText || node.publishedTimeText);
+        // 💡 মেইন ফিক্স: ভিডিও আইডি থাকার পাশাপাশি অবশ্যই টাইটেল বা ভিউ বা সময় থাকতে হবে
+        const isRealVideoObj = vId && (node.title || node.lengthText || node.viewCountText || node.thumbnail || node.publishedTimeText);
 
         if (isRealVideoObj && !seenIds.has(vId)) {
           seenIds.add(vId);
-
-          // ভিডিওর অন্যান্য তথ্য এক্সট্রাক্ট করা হচ্ছে
+          
           const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
           const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
           const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
           const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
-
-          // থাম্বনেইল লিংক তৈরি করা হচ্ছে
+          
           const thumbnailUrl = thumbQuality === 'Data Saver' 
               ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
               : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-          // সঠিক টাইটেল সেট করা হচ্ছে
+          // টাইটেল ভ্যালিডেশন
           let finalTitle = newTitle !== 'No Title Found' ? newTitle : 'YouTube Video';
           if (node.title?.runs?.[0]?.text) finalTitle = node.title.runs[0].text;
           else if (node.title?.simpleText) finalTitle = node.title.simpleText;
@@ -117,7 +113,6 @@ export default function ChannelScreen() {
           });
         }
 
-        // গভীরে যাওয়ার লজিক
         const values = Object.values(node);
         for (let i = 0; i < values.length; i++) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
@@ -126,7 +121,7 @@ export default function ChannelScreen() {
     }
   };
 
-  // 🎯 রিভার্স লজিক: এটি ডেটাকে নতুন থেকে পুরাতন ক্রমানুসারে সাজাবে
+  // 🎯 নতুন থেকে পুরাতন সর্টিং হেল্পার
   const extractAndSortChunk = (data, tabType, mainDataObj) => {
     const tempObj = { [tabType]: [], [`${tabType}Token`]: null };
     extractDataIteratively(data, tempObj, tabType);
@@ -203,7 +198,7 @@ export default function ChannelScreen() {
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      // 🎯 নতুন হেল্পার ফাংশন দিয়ে ডেটা লোড এবং সর্ট করা হচ্ছে
+      // সর্টিং হেল্পার দিয়ে ডেটা লোড
       if (parsedVideosData) extractAndSortChunk(parsedVideosData, 'Videos', categorizedData);
       if (parsedShortsData) extractAndSortChunk(parsedShortsData, 'Shorts', categorizedData);
 
@@ -265,7 +260,7 @@ export default function ChannelScreen() {
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
       extractDataIteratively(data, newData, activeTab);
 
-      // 🎯 Load More এর মাধ্যমে আসা নতুন ডেটাকেও রিভার্স করে সোজা করা হচ্ছে
+      // Load More এর নতুন ডেটাকেও রিভার্স করে সোজা করা হচ্ছে
       const sortedNewItems = newData[activeTab].reverse();
       const filteredNewItems = sortedNewItems.filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
       
@@ -343,9 +338,7 @@ export default function ChannelScreen() {
         <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
-          onPress={() => {
-             // লাইভ হ্যান্ডেলিং 
-          }}
+          onPress={() => {}}
         >
            <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
         </TouchableOpacity>
