@@ -33,20 +33,6 @@ export default function ChannelScreen() {
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
 
-  // 🎯 ক্রমানুসারে সাজানোর লজিক (নতুন থেকে পুরাতন বা পুরাতন থেকে নতুন)
-  // 'newest' = নতুন থেকে পুরাতন, 'oldest' = পুরাতন থেকে নতুন
-  const SORT_ORDER = 'newest'; 
-
-  const getSortedData = (dataArray) => {
-    if (!dataArray) return [];
-    if (SORT_ORDER === 'oldest') {
-      // পুরাতন থেকে নতুন দেখতে চাইলে অ্যারেটি উল্টে দেওয়া হবে
-      return [...dataArray].reverse();
-    }
-    // ডিফল্টভাবে 'newest' (নতুন থেকে পুরাতন) রিটার্ন করবে
-    return dataArray;
-  };
-
   useEffect(() => {
     fetchChannelData();
   }, [channelName]);
@@ -66,15 +52,15 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🎯 হাইব্রিড স্ক্যানার: আপনার অরিজিনাল লজিকের সাথে স্মার্ট ফিল্টারিং
+  // 🎯 আপডেটেড এক্সট্র্যাক্টর: এটি এখন ডেটার অরিজিনাল সিরিয়াল (নতুন থেকে পুরাতন) ধরে রাখবে
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
-    const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
+    const queue = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
 
-    while (stack.length > 0) {
-      const { node, currentTitle } = stack.pop();
+    while (queue.length > 0) {
+      // 💡 shift() ব্যবহার করে উপর থেকে নিচে ক্রমানুসারে ডেটা প্রসেস করা হচ্ছে
+      const { node, currentTitle } = queue.shift(); 
 
-      // প্যারেন্ট থেকে টাইটেল মনে রাখার ট্র্যাকিং
       let newTitle = currentTitle;
       if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
@@ -84,18 +70,15 @@ export default function ChannelScreen() {
 
       if (Array.isArray(node)) {
         for (let i = 0; i < node.length; i++) {
-          if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i], currentTitle: newTitle });
+          if (node[i] && typeof node[i] === 'object') queue.push({ node: node[i], currentTitle: newTitle });
         }
       } else if (node && typeof node === 'object') {
         
-        // টোকেন সেভ করা
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
         const vId = node.videoId;
-        
-        // 💡 এই লাইনটিই আসল লজিক: ভিডিও আইডির সাথে অন্তত টাইটেল, সময় বা ভিউ থাকতে হবে
         const isRealVideoObj = vId && (node.title || node.lengthText || node.viewCountText || node.thumbnail);
 
         if (isRealVideoObj && !seenIds.has(vId)) {
@@ -110,7 +93,6 @@ export default function ChannelScreen() {
               ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
               : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-          // যদি এই নোডের ভেতরে সরাসরি টাইটেল না থাকে, তবে আগের ট্র্যাক করা Title ব্যবহার করবে
           let finalTitle = newTitle !== 'No Title Found' ? newTitle : 'YouTube Video';
           if (node.title?.runs?.[0]?.text) finalTitle = node.title.runs[0].text;
           else if (node.title?.simpleText) finalTitle = node.title.simpleText;
@@ -128,10 +110,9 @@ export default function ChannelScreen() {
           });
         }
 
-        // গভীরে যাওয়ার জন্য চাইল্ডগুলোকে স্ট্যাকে পুশ করা
         const values = Object.values(node);
         for (let i = 0; i < values.length; i++) {
-          if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
+          if (values[i] && typeof values[i] === 'object') queue.push({ node: values[i], currentTitle: newTitle });
         }
       }
     }
@@ -218,7 +199,6 @@ export default function ChannelScreen() {
          } catch (err) {}
       }
 
-      // --- ডাবল লোডিং লজিক ---
       if (categorizedData.VideosToken && extractedApiKey) {
         try {
           const apiRes = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${extractedApiKey}`, {
@@ -422,8 +402,7 @@ export default function ChannelScreen() {
       </View>
       <FlatList 
         key={activeTab === 'Shorts' ? 'list-shorts' : 'list-videos'} 
-        // 🎯 এখানে getSortedData() লজিক বসানো হয়েছে
-        data={getSortedData(tabData[activeTab])} 
+        data={tabData[activeTab] || []} 
         renderItem={renderItem} 
         keyExtractor={(item, index) => item.id + index.toString()} 
         ListHeaderComponent={ChannelHeader}
