@@ -16,7 +16,7 @@ export default function ChannelScreen() {
 
   const { channelData = {}, channelName: paramChannelName, channelAvatar: paramAvatar, channelUrl: paramChannelUrl } = route.params || {};
 
-  const chann(থঢথঘরডররঢথ)elName = channelData?.channel || paramChannelName || 'YouTube Channel';
+  const channelName = channelData?.channel || paramChannelName || 'YouTube Channel';
   const channelAvatar = channelData?.avatar || paramAvatar || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
 
   const [activeTab, setActiveTab] = useState('Videos');
@@ -547,4 +547,4 @@ const styles = StyleSheet.create({
   
   emptyStateContainer: { padding: 50, alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyStateText: { color: '#AAA', fontSize: 16, fontWeight: '500' }
-})
+});
