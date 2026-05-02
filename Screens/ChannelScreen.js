@@ -53,7 +53,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার: এখন শুধু আসল ভিডিও বক্স থেকে ডেটা নেবে
+  // 🧠 স্মার্ট স্ক্যানার: এটি শুধু টাইটেল এবং লিংক বের করবে (কোনো থাম্বনেইল রেন্ডার করবে না)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -61,6 +61,7 @@ export default function ChannelScreen() {
     while (stack.length > 0) {
       const { node, currentTitle } = stack.pop();
 
+      // টাইটেল মনে রাখার লজিক
       let newTitle = currentTitle;
       if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
@@ -73,65 +74,32 @@ export default function ChannelScreen() {
           if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i], currentTitle: newTitle });
         }
       } else if (node && typeof node === 'object') {
-
+        
+        // Load More Token সেভ করা
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        const vId = node.videoId;
-        
-        // 💡 মেইন ফিক্স: ভিডিও আইডি থাকার পাশাপাশি অবশ্যই টাইটেল বা ভিউ বা সময় থাকতে হবে
-        const isRealVideoObj = vId && (node.title || node.lengthText || node.viewCountText || node.thumbnail || node.publishedTimeText);
-
-        if (isRealVideoObj && !seenIds.has(vId)) {
-          seenIds.add(vId);
+        // ভিডিও আইডি পেলে লিংক ও টাইটেল সেভ করা
+        const hasVideoId = !!node.videoId;
+        if (hasVideoId && !seenIds.has(node.videoId)) {
+          seenIds.add(node.videoId);
+          const vId = node.videoId;
           
-          const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
-          const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
-          const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
-          const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
-          
-          const thumbnailUrl = thumbQuality === 'Data Saver' 
-              ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
-              : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
-
-          // টাইটেল ভ্যালিডেশন
-          let finalTitle = newTitle !== 'No Title Found' ? newTitle : 'YouTube Video';
-          if (node.title?.runs?.[0]?.text) finalTitle = node.title.runs[0].text;
-          else if (node.title?.simpleText) finalTitle = node.title.simpleText;
-
           categorizedData[tabType].push({
             id: String(vId),
-            title: String(finalTitle),
-            value: `https://www.youtube.com/watch?v=${vId}`, 
+            title: String(newTitle),
+            value: `https://www.youtube.com/watch?v=${vId}`, // সরাসরি লিংক
             channel: channelName,
-            duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
-            publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
-            views: views,
-            thumbnail: thumbnailUrl,
-            isLive: isLive
           });
         }
 
+        // গভীরে যাওয়ার লজিক
         const values = Object.values(node);
         for (let i = 0; i < values.length; i++) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
         }
       }
-    }
-  };
-
-  // 🎯 নতুন থেকে পুরাতন সর্টিং হেল্পার
-  const extractAndSortChunk = (data, tabType, mainDataObj) => {
-    const tempObj = { [tabType]: [], [`${tabType}Token`]: null };
-    extractDataIteratively(data, tempObj, tabType);
-    
-    // ভিডিওর খণ্ডটিকে রিভার্স করে মেইন লিস্টে যোগ করা হচ্ছে
-    const sortedChunk = tempObj[tabType].reverse();
-    mainDataObj[tabType] = [...mainDataObj[tabType], ...sortedChunk];
-    
-    if (tempObj[`${tabType}Token`]) {
-      mainDataObj[`${tabType}Token`] = tempObj[`${tabType}Token`];
     }
   };
 
@@ -198,9 +166,8 @@ export default function ChannelScreen() {
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      // সর্টিং হেল্পার দিয়ে ডেটা লোড
-      if (parsedVideosData) extractAndSortChunk(parsedVideosData, 'Videos', categorizedData);
-      if (parsedShortsData) extractAndSortChunk(parsedShortsData, 'Shorts', categorizedData);
+      if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
+      if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
 
       // --- Fallback Logic: হোম পেজ চেক ---
       if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
@@ -208,10 +175,10 @@ export default function ChannelScreen() {
             const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
             const homeHtml = await homeRes.text();
             const homeData = parseYtData(homeHtml);
-
+            
             if (homeData) {
                if (!parsedVideosData) parsedVideosData = homeData; 
-               extractAndSortChunk(homeData, 'Videos', categorizedData);
+               extractDataIteratively(homeData, categorizedData, 'Videos');
             }
          } catch (err) {}
       }
@@ -260,10 +227,7 @@ export default function ChannelScreen() {
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
       extractDataIteratively(data, newData, activeTab);
 
-      // Load More এর নতুন ডেটাকেও রিভার্স করে সোজা করা হচ্ছে
-      const sortedNewItems = newData[activeTab].reverse();
-      const filteredNewItems = sortedNewItems.filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
-      
+      const filteredNewItems = newData[activeTab].filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
       setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...filteredNewItems] }));
 
       if (activeTab === 'Videos') setVideoToken(newData.VideosToken || null);
@@ -293,26 +257,12 @@ export default function ChannelScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
-  // 🎯 VidMate স্টাইলের রেন্ডারার
+  // 🎯 পরিবর্তিত renderItem (শুধু টাইটেল এবং লিংক দেখাবে)
   const renderItem = ({ item }) => {
     return (
-      <TouchableOpacity style={styles.vidmateCard} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-        <View style={styles.thumbnailWrapper}>
-          <Image source={{ uri: item.thumbnail }} style={styles.vidmateThumbnail} />
-          {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
-        </View>
-
-        <View style={styles.infoWrapper}>
-          <Text style={styles.vidmateTitle} numberOfLines={2}>{item.title}</Text>
-
-          <Text style={styles.vidmateMeta}>
-            {item.views ? `${item.views}` : ''}
-            {item.views && item.publishedTime ? ' • ' : ''}
-            {item.publishedTime ? `${item.publishedTime}` : ''}
-          </Text>
-
-          <Text style={styles.vidmateLink} numberOfLines={1}>{item.value}</Text>
-        </View>
+      <TouchableOpacity style={styles.debugCard} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
+        <Text style={styles.debugTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.debugType}>লিংক: <Text style={styles.debugValue}>{item.value}</Text></Text>
       </TouchableOpacity>
     );
   };
@@ -338,7 +288,9 @@ export default function ChannelScreen() {
         <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
-          onPress={() => {}}
+          onPress={() => {
+             // লাইভ হ্যান্ডেলিং 
+          }}
         >
            <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
         </TouchableOpacity>
@@ -383,7 +335,7 @@ export default function ChannelScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>{channelName}</Text>
       </View>
       <FlatList 
-        key={activeTab === 'Shorts' ? 'list-shorts' : 'list-videos'} 
+        key={activeTab === 'Shorts' ? 'grid-2' : 'list-1'} 
         data={tabData[activeTab] || []} 
         renderItem={renderItem} 
         keyExtractor={(item, index) => item.id + index.toString()} 
@@ -421,61 +373,11 @@ const styles = StyleSheet.create({
   activeTabButton: { borderBottomWidth: 2, borderBottomColor: '#FFF' },
   tabText: { color: '#AAA', fontSize: 15, fontWeight: '500' },
   activeTabText: { color: '#FFF', fontWeight: 'bold' },
-
-  vidmateCard: { 
-    flexDirection: 'row', 
-    padding: 12, 
-    borderBottomWidth: 1, 
-    borderBottomColor: '#1A1A1A',
-    backgroundColor: '#0F0F0F'
-  },
-  thumbnailWrapper: {
-    width: 150, 
-    height: 85, 
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#222',
-    position: 'relative'
-  },
-  vidmateThumbnail: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  durationBadge: {
-    position: 'absolute',
-    bottom: 5,
-    right: 5,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    color: '#FFF',
-    fontSize: 11,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    fontWeight: 'bold',
-  },
-  infoWrapper: {
-    flex: 1,
-    marginLeft: 12,
-    justifyContent: 'center',
-  },
-  vidmateTitle: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 6,
-    lineHeight: 20,
-  },
-  vidmateMeta: {
-    color: '#AAA',
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  vidmateLink: {
-    color: '#0F0', 
-    fontSize: 11,
-  },
-
+  // 🎯 নতুন ডিজাইনের জন্য স্টাইল (থাম্বনেইল ছাড়া)
+  debugCard: { backgroundColor: '#111', padding: 15, marginBottom: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', marginHorizontal: 10 },
+  debugTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginBottom: 8, lineHeight: 22 },
+  debugType: { color: '#AAA', fontSize: 13 },
+  debugValue: { color: '#0F0' }, // লিংকের কালার সবুজ
   emptyStateContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
   emptyStateText: { color: '#AAA', fontSize: 16, fontWeight: '500' }
 });
