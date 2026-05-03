@@ -70,7 +70,7 @@ export default function ChannelScreen() {
       }
 
       if (Array.isArray(node)) {
-        // নতুন থেকে পুরাতন ক্রমানুসারে লোড করার জন্য লুপটি উল্টো দিক থেকে চালানো হলো
+        // 🔄 আপডেট: লুপটি উল্টো দিক থেকে চালানো হচ্ছে যাতে স্ট্যাক পপ করার সময় সঠিক (নতুন থেকে পুরাতন) ক্রম বজায় থাকে
         for (let i = node.length - 1; i >= 0; i--) {
           if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i], currentTitle: newTitle });
         }
@@ -111,8 +111,9 @@ export default function ChannelScreen() {
           });
         }
 
-        // গভীরে যাওয়ার লজিক: নতুন থেকে পুরাতন ক্রমানুসারে লোড করার জন্য লুপটি উল্টো দিক থেকে চালানো হলো
+        // গভীরে যাওয়ার লজিক
         const values = Object.values(node);
+        // 🔄 আপডেট: এখানেও লুপটি উল্টো দিক থেকে চালানো হচ্ছে ক্রম সঠিক রাখার জন্য
         for (let i = values.length - 1; i >= 0; i--) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
         }
