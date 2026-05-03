@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
@@ -17,7 +17,6 @@ export default function SearchSettingScreen() {
   const [history, setHistory] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   
-  // [ফিক্স ২]: নতুন স্টেট যা শুধু রেজাল্ট এবং হিস্ট্রি টগল করবে
   const [showResults, setShowResults] = useState(false);
   
   const [isSearching, setIsSearching] = useState(false);
@@ -27,10 +26,23 @@ export default function SearchSettingScreen() {
   const [continuationToken, setContinuationToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
 
+  // শুধুমাত্র প্রথমবার অ্যাপে ঢুকলে কিবোর্ড অন হবে, যদি আগে থেকে কোন সার্চ করা না থাকে
   useEffect(() => {
-    const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
-    return () => clearTimeout(timeout);
+    if (!query) {
+      const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
+      return () => clearTimeout(timeout);
+    }
   }, []);
+
+  // স্ক্রিনে ফিরে আসলে কিবোর্ড এবং ফোকাস ক্লিয়ার রাখা হচ্ছে
+  useFocusEffect(
+    useCallback(() => {
+      if (showResults) {
+        Keyboard.dismiss();
+        inputRef.current?.blur();
+      }
+    }, [showResults])
+  );
 
   useEffect(() => {
     const loadData = async () => {
@@ -65,7 +77,6 @@ export default function SearchSettingScreen() {
     const text = typeof searchTerm === 'string' ? searchTerm : query;
     if (text.trim().length === 0) return;
 
-    // কিবোর্ড জোরপূর্বক হাইড করা হচ্ছে এবং রেজাল্ট অন করা হচ্ছে
     inputRef.current?.blur();
     Keyboard.dismiss();
 
@@ -79,7 +90,7 @@ export default function SearchSettingScreen() {
     saveHistory(text.trim());
     setQuery(text.trim());
     setSuggestions([]);
-    setShowResults(true); // রেজাল্ট দেখানোর পারমিশন
+    setShowResults(true);
     fetchSearchResults(text.trim());
   };
 
@@ -143,7 +154,7 @@ export default function SearchSettingScreen() {
                 videoId: node.videoRenderer.videoId,
                 headline: { simpleText: node.videoRenderer.title?.runs?.[0]?.text },
                 viewCountText: { simpleText: node.videoRenderer.shortViewCountText?.simpleText || node.videoRenderer.viewCountText?.simpleText },
-                thumbnail: node.videoRenderer.thumbnail // [ফিক্স ১]: থাম্বনেইল অবজেক্ট পাস করা হলো
+                thumbnail: node.videoRenderer.thumbnail 
              });
           } else {
              extractedVideos.push(node.videoRenderer);
@@ -176,10 +187,9 @@ export default function SearchSettingScreen() {
     extractedShorts.forEach(s => {
       if (s.videoId && s.headline?.simpleText && !uniqueShortsMap.has(s.videoId)) {
         
-        // [ফিক্স ১]: ইউটিউবের এপিআই থেকে সরাসরি থাম্বনেইল এক্সট্রাক্ট করা হচ্ছে
         let thumbUrl = `https://i.ytimg.com/vi/${s.videoId}/oardefault.jpg`;
         if (s.thumbnail?.thumbnails?.length > 0) {
-            thumbUrl = s.thumbnail.thumbnails[0].url.split('?')[0]; // ಕ್লিয়ার ইমেজ ইউআরএল
+            thumbUrl = s.thumbnail.thumbnails[0].url.split('?')[0]; 
         }
 
         uniqueShortsMap.set(s.videoId, {
@@ -217,20 +227,20 @@ export default function SearchSettingScreen() {
   };
 
   const navigateToPlayer = (item) => {
-    inputRef.current?.blur();
     Keyboard.dismiss();
+    inputRef.current?.blur();
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
   const navigateToShorts = (short) => {
-    inputRef.current?.blur();
     Keyboard.dismiss();
+    inputRef.current?.blur();
     navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
   };
 
   const navigateToChannel = (item) => {
-    inputRef.current?.blur();
     Keyboard.dismiss();
+    inputRef.current?.blur();
     navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
   };
 
@@ -319,8 +329,11 @@ export default function SearchSettingScreen() {
             value={query} 
             onChangeText={handleTextChange} 
             onSubmitEditing={() => handleSearchSubmit(query)} 
-            // [ফিক্স ২]: শুধুমাত্র সার্চ বক্সে চাপ দিলেই রেজাল্ট হাইড হয়ে হিস্ট্রি/কিবোর্ড আসবে
-            onFocus={() => setShowResults(false)}
+            /* [ফিক্স]: onFocus মুছে onTouchStart ব্যবহার করা হলো, 
+               যাতে শুধুমাত্র আঙুল দিয়ে চাপলেই সার্চ বার ওপেন হয় */
+            onTouchStart={() => {
+              if (showResults) setShowResults(false);
+            }}
             autoCorrect={false}
             autoCapitalize="none"
           />
@@ -328,7 +341,6 @@ export default function SearchSettingScreen() {
         </View>
       </View>
 
-      {/* [ফিক্স ২]: কন্ডিশনাল রেন্ডারিং ব্যবহার করে ফোকাস এবং রেজাল্ট কন্ট্রোল করা হচ্ছে */}
       <View style={{ flex: 1 }}>
         {!showResults ? (
           <FlatList 
