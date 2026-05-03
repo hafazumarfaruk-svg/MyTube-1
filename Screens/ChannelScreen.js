@@ -53,7 +53,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার: লুপ অরিজিনাল অবস্থায় রাখা হয়েছে যাতে টোকেন মিস না হয়
+  // 🧠 স্মার্ট স্ক্যানার (আগের মতোই অক্ষত, Load More এবং ক্রম ঠিক রাখার জন্য unshift)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -61,7 +61,6 @@ export default function ChannelScreen() {
     while (stack.length > 0) {
       const { node, currentTitle } = stack.pop();
 
-      // টাইটেল মনে রাখার লজিক
       let newTitle = currentTitle;
       if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
@@ -70,13 +69,11 @@ export default function ChannelScreen() {
       }
 
       if (Array.isArray(node)) {
-        // লুপ একদম অরিজিনাল রাখা হয়েছে (যাতে Token স্ক্যানিং নষ্ট না হয়)
         for (let i = 0; i < node.length; i++) {
           if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i], currentTitle: newTitle });
         }
       } else if (node && typeof node === 'object') {
         
-        // ⚠️ Load More Token সেভ করা (একদম অক্ষত)
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
@@ -95,8 +92,7 @@ export default function ChannelScreen() {
               ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
               : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-          // 🎯 ম্যাজিক ফিক্স: push() এর বদলে unshift() ব্যবহার করা হলো
-          // এটি ডেটা পার্সিংয়ের কোনো লজিক না ভেঙেও ভিডিওগুলোকে একদম "নতুন থেকে পুরাতন" ক্রমানুসারে সাজিয়ে দেবে
+          // নতুন ভিডিওগুলো আগে রাখার লজিক
           categorizedData[tabType].unshift({
             id: String(vId),
             title: String(newTitle),
@@ -111,7 +107,6 @@ export default function ChannelScreen() {
         }
 
         const values = Object.values(node);
-        // লুপ অরিজিনাল রাখা হয়েছে
         for (let i = 0; i < values.length; i++) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
         }
@@ -127,6 +122,48 @@ export default function ChannelScreen() {
       try { return JSON.parse(match[1]); } catch(e) { return null; }
     }
     return null;
+  };
+
+  // 🔄 ১ সেকেন্ড পর API দিয়ে রিফ্রেশ করার ম্যাজিক ফাংশন
+  const reFetchInitialViaApi = async (currentApiKey, vEndpoint, sEndpoint) => {
+    try {
+        const fetchTabViaApi = async (endpoint, tabName) => {
+            if (!endpoint || !endpoint.browseId) return null;
+            const response = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${currentApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'User-Agent': DESKTOP_AGENT },
+                body: JSON.stringify({
+                    context: { client: { clientName: 'WEB', clientVersion: '2.20231214.00.00' } },
+                    browseId: endpoint.browseId,
+                    params: endpoint.params
+                })
+            });
+            const data = await response.json();
+            const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
+            extractDataIteratively(data, newData, tabName);
+
+            // ডুপ্লিকেট রিমুভ
+            newData[tabName] = newData[tabName].filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+            return newData;
+        };
+
+        const [apiVideos, apiShorts] = await Promise.all([
+            fetchTabViaApi(vEndpoint, 'Videos'),
+            fetchTabViaApi(sEndpoint, 'Shorts')
+        ]);
+
+        // API থেকে ডাটা পেলে সেটি দিয়ে স্ক্রিন রিফ্রেশ করা
+        setTabData(prev => ({
+            Videos: apiVideos && apiVideos.Videos.length > 0 ? apiVideos.Videos : prev.Videos,
+            Shorts: apiShorts && apiShorts.Shorts.length > 0 ? apiShorts.Shorts : prev.Shorts
+        }));
+
+        if (apiVideos && apiVideos.VideosToken) setVideoToken(apiVideos.VideosToken);
+        if (apiShorts && apiShorts.ShortsToken) setShortToken(apiShorts.ShortsToken);
+
+    } catch (error) {
+        console.log("API refetch error:", error);
+    }
   };
 
   const fetchChannelData = async () => {
@@ -215,6 +252,24 @@ export default function ChannelScreen() {
 
         const subs = header?.subscriberCountText?.simpleText || header?.content?.pageHeaderViewModel?.metadata?.metadataRows?.[0]?.metadataParts?.[0]?.text?.content;
         if (subs) setSubscriberCount(subs);
+      }
+
+      // ⏱️ ১ সেকেন্ড পর API রিফ্রেশ ট্রিগার করা
+      const currentApiKey = apiMatch ? apiMatch[1] : null;
+      if (currentApiKey && parsedVideosData) {
+          const tabs = parsedVideosData?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+          let vEndpoint = null;
+          let sEndpoint = null;
+
+          tabs.forEach(t => {
+              const title = String(t?.tabRenderer?.title).toLowerCase();
+              if (title.includes('video') || title.includes('ভিডিও')) vEndpoint = t?.tabRenderer?.endpoint?.browseEndpoint;
+              if (title.includes('short') || title.includes('শর্ট')) sEndpoint = t?.tabRenderer?.endpoint?.browseEndpoint;
+          });
+
+          setTimeout(() => {
+              reFetchInitialViaApi(currentApiKey, vEndpoint, sEndpoint);
+          }, 1000); // ঠিক ১ সেকেন্ড
       }
 
     } catch (error) {} finally { setLoading(false); }
