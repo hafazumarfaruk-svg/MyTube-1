@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, InteractionManager } from 'react-native';
+// এখানে Dimensions ইম্পোর্ট করা হয়েছে যা আগে মিসিং ছিল
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, InteractionManager, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const { width, height } = Dimensions.get('window');
+const HEADER_HEIGHT = height / 12; // ডিভাইসের ১২ ভাগের ১ ভাগ উচ্চতা
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export default function SearchSettingScreen() {
@@ -199,7 +202,6 @@ export default function SearchSettingScreen() {
       }
     });
     
-    // শর্টস কার্ডের সাইজ অনুযায়ী ডিজাইনে সামঞ্জস্য আনতে
     const formattedShorts = Array.from(uniqueShortsMap.values()).slice(0, 15);
 
     if (formattedShorts.length > 0) {
@@ -316,7 +318,6 @@ export default function SearchSettingScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
       
-      {/* হেডার অংশ এক লাইনে আনা হয়েছে */}
       <View style={styles.searchHeader}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
@@ -390,7 +391,6 @@ export default function SearchSettingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   
-  // হেডারের স্টাইল এক লাইনের জন্য আপডেট করা হয়েছে
   searchHeader: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
   logoBox: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
   searchBar: { 
-    flex: 1, // সার্চ বার যেন বাকি সব জায়গা নিয়ে নেয়
+    flex: 1,
     flexDirection: 'row', 
     alignItems: 'center', 
     backgroundColor: '#222', 
