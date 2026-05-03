@@ -70,7 +70,8 @@ export default function ChannelScreen() {
       }
 
       if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) {
+        // নতুন থেকে পুরাতন ক্রমানুসারে লোড করার জন্য লুপটি উল্টো দিক থেকে চালানো হলো
+        for (let i = node.length - 1; i >= 0; i--) {
           if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i], currentTitle: newTitle });
         }
       } else if (node && typeof node === 'object') {
@@ -110,9 +111,9 @@ export default function ChannelScreen() {
           });
         }
 
-        // গভীরে যাওয়ার লজিক
+        // গভীরে যাওয়ার লজিক: নতুন থেকে পুরাতন ক্রমানুসারে লোড করার জন্য লুপটি উল্টো দিক থেকে চালানো হলো
         const values = Object.values(node);
-        for (let i = 0; i < values.length; i++) {
+        for (let i = values.length - 1; i >= 0; i--) {
           if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i], currentTitle: newTitle });
         }
       }
