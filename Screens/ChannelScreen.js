@@ -53,7 +53,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার: এটি হুবহু আগের মতোই আছে, শুধু Stack এর পরিবর্তে Queue (FIFO) ব্যবহার করা হয়েছে
+  // 🧠 স্মার্ট স্ক্যানার: Queue (FIFO) পদ্ধতি এবং API থাম্বনেইল ফিক্স
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const queue = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -92,10 +92,24 @@ export default function ChannelScreen() {
           const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
           const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
           
-          // থাম্বনেইল লিংক তৈরি করা হচ্ছে
-          const thumbnailUrl = thumbQuality === 'Data Saver' 
-              ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
-              : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+          // 🎯 থাম্বনেইল লিংক তৈরি করা (API রেসপন্স অথবা ওয়েব ডিফল্ট)
+          let thumbnailUrl = '';
+          if (node.thumbnail?.thumbnails && node.thumbnail.thumbnails.length > 0) {
+             const thumbs = node.thumbnail.thumbnails;
+             // ইউজারের কোয়ালিটি সেটিং অনুযায়ী থাম্বনেইল বাছাই
+             let selectedThumb = thumbQuality === 'Data Saver' ? thumbs[0].url : thumbs[thumbs.length - 1].url;
+             
+             // যদি URL // দিয়ে শুরু হয় তবে https জুড়ে দেওয়া
+             if (selectedThumb.startsWith('//')) {
+                 selectedThumb = 'https:' + selectedThumb;
+             }
+             thumbnailUrl = selectedThumb;
+          } else {
+             // API তে থাম্বনেইল না পেলে ডিফল্ট লজিক
+             thumbnailUrl = thumbQuality === 'Data Saver' 
+                ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
+                : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+          }
 
           categorizedData[tabType].push({
             id: String(vId),
@@ -273,17 +287,14 @@ export default function ChannelScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
-  // 🎯 VidMate স্টাইলের রেন্ডারার (বামে ছোট থাম্বনেইল, ডানে সব তথ্য)
   const renderItem = ({ item }) => {
     return (
       <TouchableOpacity style={styles.vidmateCard} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-        {/* বাম সাইড: ছোট থাম্বনেইল এবং সময় */}
         <View style={styles.thumbnailWrapper}>
           <Image source={{ uri: item.thumbnail }} style={styles.vidmateThumbnail} />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </View>
 
-        {/* ডান সাইড: টাইটেল, লিংক, বয়স এবং ভিউজ */}
         <View style={styles.infoWrapper}>
           <Text style={styles.vidmateTitle} numberOfLines={2}>{item.title}</Text>
           
@@ -406,7 +417,6 @@ const styles = StyleSheet.create({
   tabText: { color: '#AAA', fontSize: 15, fontWeight: '500' },
   activeTabText: { color: '#FFF', fontWeight: 'bold' },
   
-  // 🎯 VidMate স্টাইলের নতুন ডিজাইন
   vidmateCard: { 
     flexDirection: 'row', 
     padding: 12, 
@@ -415,8 +425,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F0F0F'
   },
   thumbnailWrapper: {
-    width: 150, // থাম্বনেইলের প্রস্থ (VidMate এর মতো ছোট)
-    height: 85, // থাম্বনেইলের উচ্চতা
+    width: 150,
+    height: 85,
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#222',
@@ -457,7 +467,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   vidmateLink: {
-    color: '#0F0', // লিংক সবুজ রঙে হাইলাইট করা হলো
+    color: '#0F0',
     fontSize: 11,
   },
   
