@@ -9,23 +9,6 @@ import { DeviceEventEmitter } from 'react-native';
 const { width } = Dimensions.get('window');
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// 🎯 API থেকে আসা সেকেন্ডকে ফরমেট করার হেল্পার
-const formatDuration = (seconds) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return h > 0 ? `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}` : `${m}:${s < 10 ? '0' : ''}${s}`;
-};
-
-// 🎯 API থেকে আসা ভিউজকে ফরমেট করার হেল্পার
-const formatViews = (viewCount) => {
-    const num = parseInt(viewCount);
-    if (isNaN(num)) return viewCount;
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-};
-
 export default function ChannelScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -41,6 +24,7 @@ export default function ChannelScreen() {
   const [isLoadingMore, setIsLoadingMore] = useState(false); 
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLiveChannel, setIsLiveChannel] = useState(false); 
+  const [liveVideoData, setLiveVideoData] = useState(null);
   const [thumbQuality, setThumbQuality] = useState('High');
   const [channelBanner, setChannelBanner] = useState('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop');
   const [subscriberCount, setSubscriberCount] = useState('N/A');
@@ -69,49 +53,69 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 One System Extractor: এটি শুধুমাত্র "ID" ও "Token" সূত্র হিসেবে সংগ্রহ করবে (ফ্ললেস ভার্সন)
-  const extractClues = (rootNode, categorizedData, tabType) => {
-    const stack = [{ node: rootNode }];
+  // 🧠 স্মার্ট স্ক্যানার: এটি হুবহু আগের মতোই আছে, শুধু Stack এর পরিবর্তে Queue (FIFO) ব্যবহার করা হয়েছে
+  const extractDataIteratively = (rootNode, categorizedData, tabType) => {
+    const queue = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
 
-    while (stack.length > 0) {
-      const { node } = stack.pop();
+    while (queue.length > 0) {
+      const { node, currentTitle } = queue.shift();
+
+      // টাইটেল মনে রাখার লজিক
+      let newTitle = currentTitle;
+      if (node && typeof node === 'object') {
+        if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
+        else if (node.title?.simpleText) newTitle = node.title.simpleText;
+        else if (node.headline?.simpleText) newTitle = node.headline.simpleText;
+      }
 
       if (Array.isArray(node)) {
         for (let i = 0; i < node.length; i++) {
-          if (node[i] && typeof node[i] === 'object') stack.push({ node: node[i] });
+          if (node[i] && typeof node[i] === 'object') queue.push({ node: node[i], currentTitle: newTitle });
         }
       } else if (node && typeof node === 'object') {
         
+        // Load More Token সেভ করা
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        const vId = node.videoId;
-        const isRealVideoObj = vId && (node.title || node.lengthText || node.viewCountText || node.thumbnail || node.publishedTimeText);
+        // ভিডিও আইডি পেলে লিংক, টাইটেল এবং অন্যান্য তথ্য সেভ করা
+        const hasVideoId = !!node.videoId;
+        if (hasVideoId && !seenIds.has(node.videoId)) {
+          seenIds.add(node.videoId);
+          const vId = node.videoId;
+          
+          // ভিডিওর অন্যান্য তথ্য এক্সট্রাক্ট করা হচ্ছে
+          const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
+          const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
+          const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
+          const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
+          
+          // থাম্বনেইল লিংক তৈরি করা হচ্ছে
+          const thumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-        if (isRealVideoObj && !seenIds.has(vId)) {
-          seenIds.add(vId);
-          categorizedData[tabType].push({ id: String(vId) });
+          categorizedData[tabType].push({
+            id: String(vId),
+            title: String(newTitle),
+            value: `https://www.youtube.com/watch?v=${vId}`, 
+            channel: channelName,
+            duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
+            publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
+            views: views,
+            thumbnail: thumbnailUrl,
+            isLive: isLive
+          });
         }
 
+        // গভীরে যাওয়ার লজিক
         const values = Object.values(node);
         for (let i = 0; i < values.length; i++) {
-          if (values[i] && typeof values[i] === 'object') stack.push({ node: values[i] });
+          if (values[i] && typeof values[i] === 'object') queue.push({ node: values[i], currentTitle: newTitle });
         }
       }
-    }
-  };
-
-  const extractAndSortChunk = (data, tabType, mainDataObj) => {
-    const tempObj = { [tabType]: [], [`${tabType}Token`]: null };
-    extractClues(data, tempObj, tabType); // শুধুমাত্র আইডি এক্সট্রাক্ট করবে
-    
-    const sortedChunk = tempObj[tabType].reverse();
-    mainDataObj[tabType] = [...mainDataObj[tabType], ...sortedChunk];
-    
-    if (tempObj[`${tabType}Token`]) {
-      mainDataObj[`${tabType}Token`] = tempObj[`${tabType}Token`];
     }
   };
 
@@ -123,79 +127,6 @@ export default function ChannelScreen() {
       try { return JSON.parse(match[1]); } catch(e) { return null; }
     }
     return null;
-  };
-
-  // 🚀 One System API Fetcher: সব ভিডিও API থেকে ফুল ডেটা আনবে (অ্যান্টি-বট ব্লক রেসিস্ট্যান্ট)
-  const fetchDetailsViaAPI = async (videosList, tabType, currentApiKey, isInitial = false) => {
-    if (!videosList || videosList.length === 0 || !currentApiKey) {
-        if (isInitial && tabType === activeTab) setLoading(false);
-        return;
-    }
-
-    const batchSize = 3; // একবারে ৩টির বেশি রিকোয়েস্ট নয়, যেন ইউটিউব ব্লক না করে
-
-    for (let i = 0; i < videosList.length; i += batchSize) {
-        const batch = videosList.slice(i, i + batchSize);
-        
-        const batchResults = await Promise.all(batch.map(async (vid) => {
-            try {
-                const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${currentApiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'User-Agent': DESKTOP_AGENT },
-                    body: JSON.stringify({
-                        context: { client: { clientName: 'WEB', clientVersion: '2.20231214.00.00' } },
-                        videoId: vid.id
-                    })
-                });
-                
-                if (!res.ok) return null; // 429 Error হ্যান্ডেলিং
-                
-                const textData = await res.text();
-                const data = JSON.parse(textData);
-                const details = data?.videoDetails;
-                const microformat = data?.microformat?.playerMicroformatRenderer;
-
-                if (details) {
-                    let publishedTime = '';
-                    if (microformat?.publishDate) {
-                        publishedTime = new Date(microformat.publishDate).toLocaleDateString(); 
-                    }
-
-                    return {
-                        id: vid.id,
-                        title: details.title || 'YouTube Video',
-                        value: `https://www.youtube.com/watch?v=${vid.id}`,
-                        channel: details.author || channelName,
-                        duration: details.lengthSeconds ? formatDuration(parseInt(details.lengthSeconds)) : (tabType === 'Shorts' ? 'Short' : ''),
-                        views: details.viewCount ? `${formatViews(details.viewCount)} views` : '',
-                        publishedTime: publishedTime,
-                        thumbnail: `https://i.ytimg.com/vi/${vid.id}/${thumbQuality === 'Data Saver' ? 'mqdefault' : 'hqdefault'}.jpg`,
-                        isLive: details.isLiveContent || false
-                    };
-                }
-            } catch (e) {}
-            return null;
-        }));
-
-        const validVideos = batchResults.filter(v => v !== null);
-
-        if (validVideos.length > 0) {
-            // ডেটা আসার সাথে সাথে UI তে প্রোগ্রেসিভলি আপডেট হবে
-            setTabData(prev => {
-                const currentTabList = prev[tabType] || [];
-                const filteredNew = validVideos.filter(newV => !currentTabList.some(v => v.id === newV.id));
-                return { ...prev, [tabType]: [...currentTabList, ...filteredNew] };
-            });
-        }
-
-        // প্রথম ব্যাচের ডেটা লোড হয়ে গেলেই মেইন লোডার বন্ধ করে ভিডিও দেখানো শুরু হবে
-        if (isInitial && i === 0 && tabType === activeTab) setLoading(false);
-
-        // 💡 ইউটিউব যেন বট না ভাবে তার জন্য রিকোয়েস্টের মাঝে ৪০০ মিলি-সেকেন্ডের বিরতি
-        await new Promise(resolve => setTimeout(resolve, 400));
-    }
-    
-    if (isInitial && tabType === activeTab) setLoading(false);
   };
 
   const fetchChannelData = async () => {
@@ -241,11 +172,9 @@ export default function ChannelScreen() {
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
-      let currentApiKey = null;
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
       if (apiMatch && apiMatch[1]) {
-          currentApiKey = apiMatch[1];
-          setApiKey(currentApiKey);
+          setApiKey(apiMatch[1]);
       }
 
       let parsedVideosData = parseYtData(videosHtml);
@@ -253,19 +182,19 @@ export default function ChannelScreen() {
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      if (parsedVideosData) extractAndSortChunk(parsedVideosData, 'Videos', categorizedData);
-      if (parsedShortsData) extractAndSortChunk(parsedShortsData, 'Shorts', categorizedData);
+      if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
+      if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
 
-      // Fallback Logic
-      if (categorizedData.Videos.length === 0 || categorizedData.Shorts.length === 0) {
+      // --- Fallback Logic: হোম পেজ চেক ---
+      if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
          try {
             const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
             const homeHtml = await homeRes.text();
             const homeData = parseYtData(homeHtml);
-
+            
             if (homeData) {
-               if (categorizedData.Videos.length === 0) extractAndSortChunk(homeData, 'Videos', categorizedData);
-               if (categorizedData.Shorts.length === 0) extractAndSortChunk(homeData, 'Shorts', categorizedData);
+               if (!parsedVideosData) parsedVideosData = homeData; 
+               extractDataIteratively(homeData, categorizedData, 'Videos');
             }
          } catch (err) {}
       }
@@ -276,16 +205,7 @@ export default function ChannelScreen() {
       setVideoToken(categorizedData.VideosToken);
       setShortToken(categorizedData.ShortsToken);
 
-      // 💡 ওয়েব থেকে কোনো ডেটা সেট করা হলো না! শুধু Empty Array দিয়ে ইনিশিয়ালাইজ করা হলো
-      setTabData({ Videos: [], Shorts: [] });
-
-      // ওয়েব থেকে প্রাপ্ত আইডি বা সূত্রগুলো দিয়ে এখন API কল করা হচ্ছে
-      if (currentApiKey) {
-          fetchDetailsViaAPI(categorizedData.Videos, 'Videos', currentApiKey, true);
-          fetchDetailsViaAPI(categorizedData.Shorts, 'Shorts', currentApiKey, true);
-      } else {
-          setLoading(false); // API Key না পেলে ফলব্যাক
-      }
+      setTabData({ Videos: categorizedData.Videos, Shorts: categorizedData.Shorts });
 
       // Header Data
       if (parsedVideosData) {
@@ -299,7 +219,7 @@ export default function ChannelScreen() {
         if (subs) setSubscriberCount(subs);
       }
 
-    } catch (error) {}
+    } catch (error) {} finally { setLoading(false); }
   };
 
   const fetchMoreData = async () => {
@@ -321,15 +241,13 @@ export default function ChannelScreen() {
       try { data = JSON.parse(responseText); } catch (err) { setIsLoadingMore(false); return; }
 
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
-      
-      // 💡 Load More এর ক্ষেত্রেও একই সিস্টেম: শুধু আইডি এক্সট্রাক্ট হবে
-      extractAndSortChunk(data, activeTab, newData);
+      extractDataIteratively(data, newData, activeTab);
+
+      const filteredNewItems = newData[activeTab].filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
+      setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...filteredNewItems] }));
 
       if (activeTab === 'Videos') setVideoToken(newData.VideosToken || null);
       else setShortToken(newData.ShortsToken || null);
-
-      // নতুন আইডিগুলো দিয়ে আবার API কল করা হচ্ছে
-      await fetchDetailsViaAPI(newData[activeTab], activeTab, apiKey, false);
 
     } catch (error) {} finally { setIsLoadingMore(false); }
   };
@@ -355,23 +273,26 @@ export default function ChannelScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item });
   };
 
+  // 🎯 VidMate স্টাইলের রেন্ডারার (বামে ছোট থাম্বনেইল, ডানে সব তথ্য)
   const renderItem = ({ item }) => {
     return (
       <TouchableOpacity style={styles.vidmateCard} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
+        {/* বাম সাইড: ছোট থাম্বনেইল এবং সময় */}
         <View style={styles.thumbnailWrapper}>
           <Image source={{ uri: item.thumbnail }} style={styles.vidmateThumbnail} />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </View>
 
+        {/* ডান সাইড: টাইটেল, লিংক, বয়স এবং ভিউজ */}
         <View style={styles.infoWrapper}>
           <Text style={styles.vidmateTitle} numberOfLines={2}>{item.title}</Text>
-
+          
           <Text style={styles.vidmateMeta}>
             {item.views ? `${item.views}` : ''}
             {item.views && item.publishedTime ? ' • ' : ''}
             {item.publishedTime ? `${item.publishedTime}` : ''}
           </Text>
-
+          
           <Text style={styles.vidmateLink} numberOfLines={1}>{item.value}</Text>
         </View>
       </TouchableOpacity>
@@ -399,7 +320,9 @@ export default function ChannelScreen() {
         <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
-          onPress={() => {}}
+          onPress={() => {
+             // লাইভ হ্যান্ডেলিং 
+          }}
         >
            <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
         </TouchableOpacity>
@@ -482,7 +405,8 @@ const styles = StyleSheet.create({
   activeTabButton: { borderBottomWidth: 2, borderBottomColor: '#FFF' },
   tabText: { color: '#AAA', fontSize: 15, fontWeight: '500' },
   activeTabText: { color: '#FFF', fontWeight: 'bold' },
-
+  
+  // 🎯 VidMate স্টাইলের নতুন ডিজাইন
   vidmateCard: { 
     flexDirection: 'row', 
     padding: 12, 
@@ -491,8 +415,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F0F0F'
   },
   thumbnailWrapper: {
-    width: 150, 
-    height: 85, 
+    width: 150, // থাম্বনেইলের প্রস্থ (VidMate এর মতো ছোট)
+    height: 85, // থাম্বনেইলের উচ্চতা
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#222',
@@ -533,10 +457,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   vidmateLink: {
-    color: '#0F0', 
+    color: '#0F0', // লিংক সবুজ রঙে হাইলাইট করা হলো
     fontSize: 11,
   },
-
+  
   emptyStateContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
   emptyStateText: { color: '#AAA', fontSize: 16, fontWeight: '500' }
 });
