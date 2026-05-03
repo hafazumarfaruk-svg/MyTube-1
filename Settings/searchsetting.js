@@ -438,4 +438,4 @@ const styles = StyleSheet.create({
   channelBigAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#333' },
   channelTitleMain: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   channelMetaMain: { color: '#AAA', fontSize: 12 }
-})
+});
