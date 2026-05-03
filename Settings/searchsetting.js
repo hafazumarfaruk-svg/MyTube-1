@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,17 +29,21 @@ export default function SearchSettingScreen() {
   // শুধুমাত্র প্রথমবার অ্যাপে ঢুকলে কিবোর্ড অন হবে, যদি আগে থেকে কোন সার্চ করা না থাকে
   useEffect(() => {
     if (!query) {
-      const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
-      return () => clearTimeout(timeout);
+      InteractionManager.runAfterInteractions(() => {
+        const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
+        return () => clearTimeout(timeout);
+      });
     }
   }, []);
 
-  // স্ক্রিনে ফিরে আসলে কিবোর্ড এবং ফোকাস ক্লিয়ার রাখা হচ্ছে
+  // স্ক্রিনে ফিরে আসলে কিবোর্ড এবং ফোকাস ক্লিয়ার রাখা হচ্ছে (ফ্রিজ সমস্যা রোধে InteractionManager যুক্ত করা হলো)
   useFocusEffect(
     useCallback(() => {
       if (showResults) {
-        Keyboard.dismiss();
-        inputRef.current?.blur();
+        InteractionManager.runAfterInteractions(() => {
+          Keyboard.dismiss();
+          inputRef.current?.blur();
+        });
       }
     }, [showResults])
   );
@@ -226,22 +230,29 @@ export default function SearchSettingScreen() {
     return { finalFeed, nextToken };
   };
 
+  // ন্যাভিগেশনে InteractionManager ব্যবহার করা হলো যাতে স্ক্রিন ফ্রিজ না হয়
   const navigateToPlayer = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    navigation.navigate('Player', { videoId: item.id, videoData: item });
+    InteractionManager.runAfterInteractions(() => {
+        navigation.navigate('Player', { videoId: item.id, videoData: item });
+    });
   };
 
   const navigateToShorts = (short) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
+    InteractionManager.runAfterInteractions(() => {
+        navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
+    });
   };
 
   const navigateToChannel = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
+    InteractionManager.runAfterInteractions(() => {
+        navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
+    });
   };
 
   const renderItem = ({ item }) => {
@@ -329,8 +340,6 @@ export default function SearchSettingScreen() {
             value={query} 
             onChangeText={handleTextChange} 
             onSubmitEditing={() => handleSearchSubmit(query)} 
-            /* [ফিক্স]: onFocus মুছে onTouchStart ব্যবহার করা হলো, 
-               যাতে শুধুমাত্র আঙুল দিয়ে চাপলেই সার্চ বার ওপেন হয় */
             onTouchStart={() => {
               if (showResults) setShowResults(false);
             }}
@@ -365,6 +374,11 @@ export default function SearchSettingScreen() {
                 onEndReachedThreshold={0.5} 
                 ListFooterComponent={isLoadingMore && <ActivityIndicator color="#FF0000" style={{ margin: 20 }} />} 
                 contentContainerStyle={{ paddingBottom: 20 }} 
+                // স্ক্রল পারফরম্যান্স অপটিমাইজেশন
+                removeClippedSubviews={true} 
+                initialNumToRender={10} 
+                maxToRenderPerBatch={10} 
+                windowSize={5} 
               />
             )}
           </>
