@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
@@ -10,7 +10,6 @@ const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 
 export default function SearchSettingScreen() {
   const navigation = useNavigation();
-  const isFocused = useIsFocused(); 
   const inputRef = useRef(null);
 
   const [query, setQuery] = useState('');
@@ -18,7 +17,6 @@ export default function SearchSettingScreen() {
   const [suggestions, setSuggestions] = useState([]);
   
   const [showResults, setShowResults] = useState(false);
-  
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -27,6 +25,15 @@ export default function SearchSettingScreen() {
   const [apiKey, setApiKey] = useState(null);
 
   useEffect(() => {
+    // শুধুমাত্র অ্যাপ ওপেন হলে একবার হিস্ট্রি লোড হবে। ব্যাক করলে আর রিলোড হবে না (ফ্রিজ রোধ করতে)
+    const loadData = async () => {
+      try {
+        const savedHistory = await AsyncStorage.getItem('myTubeSearchHistory');
+        if (savedHistory) setHistory(JSON.parse(savedHistory));
+      } catch (e) {}
+    };
+    loadData();
+
     if (!query) {
       InteractionManager.runAfterInteractions(() => {
         const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
@@ -34,16 +41,6 @@ export default function SearchSettingScreen() {
       });
     }
   }, []);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const savedHistory = await AsyncStorage.getItem('myTubeSearchHistory');
-        if (savedHistory) setHistory(JSON.parse(savedHistory));
-      } catch (e) {}
-    };
-    if (isFocused) loadData();
-  }, [isFocused]);
 
   const handleTextChange = async (text) => {
     setQuery(text);
@@ -64,7 +61,6 @@ export default function SearchSettingScreen() {
     await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory));
   };
 
-  // [নতুন লজিক]: হিস্ট্রি থেকে নির্দিষ্ট আইটেম ডিলিট করা
   const removeHistoryItem = async (itemToRemove) => {
     const updatedHistory = history.filter(item => item !== itemToRemove);
     setHistory(updatedHistory);
@@ -89,7 +85,11 @@ export default function SearchSettingScreen() {
     setQuery(text.trim());
     setSuggestions([]);
     setShowResults(true);
-    fetchSearchResults(text.trim());
+    
+    // সার্চ অপটিমাইজেশন: কিবোর্ড নামার পর ডাটা ফেচ হবে
+    InteractionManager.runAfterInteractions(() => {
+      fetchSearchResults(text.trim());
+    });
   };
 
   const fetchSearchResults = async (searchQuery) => {
@@ -224,29 +224,29 @@ export default function SearchSettingScreen() {
     return { finalFeed, nextToken };
   };
 
-  // [আপডেট লজিক]: ন্যাভিগেশনের সময় requestAnimationFrame ব্যবহার করা হলো যাতে ফ্রিজ না হয়
   const navigateToPlayer = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         navigation.navigate('Player', { videoId: item.id, videoData: item });
-    });
+    }, 0);
   };
 
+  // শর্টস স্ক্রিনের জন্য নেভিগেশন - সাথে সাথে বিচ্ছিন্ন করার জন্য setTimeout ব্যবহার করা হলো
   const navigateToShorts = (short) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
-    });
+    }, 0);
   };
 
   const navigateToChannel = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
-    });
+    }, 0);
   };
 
   const renderItem = ({ item }) => {
@@ -353,14 +353,12 @@ export default function SearchSettingScreen() {
             data={query ? suggestions : history} 
             keyExtractor={(item, index) => index.toString()} 
             renderItem={({item}) => (
-              // [নতুন লজিক]: হিস্ট্রি আইটেম এবং ডিলিট বাটন আলাদা করা হলো
               <View style={styles.historyRowContainer}>
                 <TouchableOpacity style={styles.historyClickableArea} onPress={() => handleSearchSubmit(item)}>
                   <Ionicons name={query ? "search-outline" : "time-outline"} size={22} color="#AAA" />
                   <Text style={styles.historyText}>{item}</Text>
                 </TouchableOpacity>
                 
-                {/* সার্চ না করা অবস্থায় সাদা ক্রস বাটন দেখাবে */}
                 {!query && (
                   <TouchableOpacity style={styles.deleteBtn} onPress={() => removeHistoryItem(item)}>
                     <Ionicons name="close" size={22} color="#FFF" />
@@ -396,36 +394,16 @@ export default function SearchSettingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  
-  searchHeader: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    height: 60, 
-    backgroundColor: '#0F0F0F', 
-    paddingHorizontal: 10, 
-    borderBottomWidth: 1, 
-    borderBottomColor: '#222' 
-  },
+  searchHeader: { flexDirection: 'row', alignItems: 'center', height: 60, backgroundColor: '#0F0F0F', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#222' },
   iconBtn: { padding: 4, marginRight: 8 },
   logoBox: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-  searchBar: { 
-    flex: 1,
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#222', 
-    borderRadius: 20, 
-    height: 38, 
-    paddingHorizontal: 15 
-  },
+  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#222', borderRadius: 20, height: 38, paddingHorizontal: 15 },
   input: { flex: 1, color: '#FFF', fontSize: 14, paddingVertical: 0 },
-  
-  // হিস্ট্রি আইটেম এবং ডিলিট বাটনের স্টাইল
   historyRowContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15 },
   historyClickableArea: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   historyText: { color: '#FFF', fontSize: 16, marginLeft: 15 },
   deleteBtn: { padding: 5, paddingLeft: 15 },
-
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   videoCard: { marginBottom: 15 },
   thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
