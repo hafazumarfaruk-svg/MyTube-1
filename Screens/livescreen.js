@@ -86,7 +86,6 @@ export default function LiveScreen() {
 
   const getHighQualityThumbnail = (thumbnailObj, videoId) => {
     if (!thumbnailObj || !thumbnailObj.thumbnails || thumbnailObj.thumbnails.length === 0) {
-        // ভিডিও হলে ডিফল্ট ইউটিউব থাম্বনেইল, চ্যানেল হলে ডিফল্ট লোগো
         return videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'https://via.placeholder.com/150/333333/FFFFFF?text=TV';
     }
     let bestImgUrl = thumbnailObj.thumbnails[thumbnailObj.thumbnails.length - 1].url;
@@ -98,7 +97,7 @@ export default function LiveScreen() {
     setIsFetchingTopChannels(true);
     try {
       const query = TOP_BAR_QUERIES[queryIndex];
-      const liveFilter = '&sp=EgJAAQ%253D%253D'; // শুধুমাত্র লাইভ ভিডিও
+      const liveFilter = '&sp=EgJAAQ%253D%253D';
       const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${liveFilter}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
       const htmlText = await response.text();
       let match = htmlText.match(/ytInitialData\s*=\s*({.+?});/) || htmlText.match(/var ytInitialData = (.*?);<\/script>/);
@@ -117,10 +116,9 @@ export default function LiveScreen() {
                 const avatar = getHighQualityThumbnail(vid.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail, null);
                 const liveVideoId = vid.videoId;
 
-                // চ্যানেলটি যেন ডাবল না আসে তা চেক করা হচ্ছে
                 if (channelName && channelId && liveVideoId) {
-                    const isDuplicate = topChannels.some(c => c.id === channelId) || newChannels.some(c => c.id === channelId);
-                    if (!isDuplicate) {
+                    // একই রিকোয়েস্টে ডাবল চ্যানেল যেন না আসে
+                    if (!newChannels.some(c => c.id === channelId)) {
                         newChannels.push({
                             id: channelId,
                             name: channelName,
@@ -134,8 +132,13 @@ export default function LiveScreen() {
         };
         extractNodes(jsonData);
 
-        // আগের চ্যানেলের সাথে নতুন ফেচ করা চ্যানেলগুলো যুক্ত করা
-        setTopChannels(prev => queryIndex === 0 ? newChannels : [...prev, ...newChannels]);
+        // [FIXED]: আগের চ্যানেলগুলোর সাথে নতুনগুলো সঠিকভাবে যুক্ত করা হচ্ছে
+        setTopChannels(prev => {
+            // আগের লিস্টে থাকা চ্যানেলগুলো বাদ দিয়ে শুধু সম্পূর্ণ নতুন চ্যানেলগুলো ফিল্টার করা হচ্ছে
+            const uniqueNewChannels = newChannels.filter(nc => !prev.some(pc => pc.id === nc.id));
+            return queryIndex === 0 ? uniqueNewChannels : [...prev, ...uniqueNewChannels];
+        });
+        
         setTopQueryIndex(queryIndex + 1);
       }
     } catch (e) {
@@ -189,7 +192,6 @@ export default function LiveScreen() {
     }
   };
 
-  // উপরের লোগোতে চাপ দিলে সাথে সাথেই লাইভ চালু হবে
   const playTopChannelLive = (channel) => {
     navigation.navigate('Player', { 
       videoId: channel.liveVideoId, 
@@ -202,32 +204,6 @@ export default function LiveScreen() {
       <Image source={{ uri: item.logo }} style={styles.topChannelLogo} />
       <Text style={styles.topChannelName} numberOfLines={1}>{item.name}</Text>
     </TouchableOpacity>
-  );
-
-  const ListHeader = () => (
-    <View style={styles.topChannelsContainer}>
-      {topChannels.length === 0 && isFetchingTopChannels ? (
-        <ActivityIndicator size="small" color="#FF0000" style={{ paddingVertical: 20 }} />
-      ) : (
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={topChannels}
-          keyExtractor={(item, index) => item.id + index}
-          renderItem={renderTopChannel}
-          contentContainerStyle={{ paddingHorizontal: 8 }}
-          onEndReached={loadMoreTopChannels}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            isFetchingTopChannels && topChannels.length > 0 ? (
-              <View style={{ justifyContent: 'center', paddingHorizontal: 15 }}>
-                <ActivityIndicator size="small" color="#FF0000" />
-              </View>
-            ) : null
-          }
-        />
-      )}
-    </View>
   );
 
   const renderVideoItem = ({ item }) => (
@@ -278,7 +254,32 @@ export default function LiveScreen() {
           data={videos} 
           renderItem={renderVideoItem} 
           keyExtractor={(item, index) => item.id + index.toString()} 
-          ListHeaderComponent={ListHeader} 
+          // [FIXED]: ListHeaderComponent কে সরাসরি JSX দিয়ে রিটার্ন করা হয়েছে যাতে স্ক্রল পজিশন রিসেট না হয়।
+          ListHeaderComponent={
+            <View style={styles.topChannelsContainer}>
+              {topChannels.length === 0 && isFetchingTopChannels ? (
+                <ActivityIndicator size="small" color="#FF0000" style={{ paddingVertical: 20 }} />
+              ) : (
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={topChannels}
+                  keyExtractor={(item, index) => item.id + index.toString()}
+                  renderItem={renderTopChannel}
+                  contentContainerStyle={{ paddingHorizontal: 8 }}
+                  onEndReached={loadMoreTopChannels}
+                  onEndReachedThreshold={0.5}
+                  ListFooterComponent={
+                    isFetchingTopChannels && topChannels.length > 0 ? (
+                      <View style={{ justifyContent: 'center', paddingHorizontal: 15 }}>
+                        <ActivityIndicator size="small" color="#FF0000" />
+                      </View>
+                    ) : null
+                  }
+                />
+              )}
+            </View>
+          }
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF0000" />} 
           onEndReached={loadMoreVideos}
           onEndReachedThreshold={0.5} 
