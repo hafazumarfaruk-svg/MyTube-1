@@ -132,9 +132,8 @@ export default function LiveScreen() {
         };
         extractNodes(jsonData);
 
-        // [FIXED]: আগের চ্যানেলগুলোর সাথে নতুনগুলো সঠিকভাবে যুক্ত করা হচ্ছে
+        // আগের চ্যানেলগুলোর সাথে নতুনগুলো সঠিকভাবে যুক্ত করা হচ্ছে
         setTopChannels(prev => {
-            // আগের লিস্টে থাকা চ্যানেলগুলো বাদ দিয়ে শুধু সম্পূর্ণ নতুন চ্যানেলগুলো ফিল্টার করা হচ্ছে
             const uniqueNewChannels = newChannels.filter(nc => !prev.some(pc => pc.id === nc.id));
             return queryIndex === 0 ? uniqueNewChannels : [...prev, ...uniqueNewChannels];
         });
@@ -216,7 +215,8 @@ export default function LiveScreen() {
       </TouchableOpacity>
 
       <View style={styles.videoInfo}>
-        <TouchableOpacity onPress={() => navigation.navigate('ChannelScreen', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar })}>
+        {/* [UPDATED]: এখানে 'ChannelScreen' এর জায়গায় 'Channel' দেওয়া হয়েছে এবং ভিডিও লিংক পাস করা হয়েছে */}
+        <TouchableOpacity onPress={() => navigation.navigate('Channel', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar, videoLink: `https://www.youtube.com/watch?v=${item.id}` })}>
           <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
         </TouchableOpacity>
         
@@ -224,7 +224,8 @@ export default function LiveScreen() {
           <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
           </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('ChannelScreen', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar })}>
+          {/* [UPDATED]: এখানেও 'ChannelScreen' এর জায়গায় 'Channel' দেওয়া হয়েছে এবং ভিডিও লিংক পাস করা হয়েছে */}
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Channel', { channelId: item.channelId, channelName: item.channel, avatar: item.avatar, videoLink: `https://www.youtube.com/watch?v=${item.id}` })}>
             <Text style={styles.meta}>{item.channel} • {item.views} • {item.timeText}</Text>
           </TouchableOpacity>
         </View>
@@ -254,7 +255,6 @@ export default function LiveScreen() {
           data={videos} 
           renderItem={renderVideoItem} 
           keyExtractor={(item, index) => item.id + index.toString()} 
-          // [FIXED]: ListHeaderComponent কে সরাসরি JSX দিয়ে রিটার্ন করা হয়েছে যাতে স্ক্রল পজিশন রিসেট না হয়।
           ListHeaderComponent={
             <View style={styles.topChannelsContainer}>
               {topChannels.length === 0 && isFetchingTopChannels ? (
