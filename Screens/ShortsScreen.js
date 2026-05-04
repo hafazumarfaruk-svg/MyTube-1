@@ -5,18 +5,19 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 
+// ৪টি আলাদা কোয়ালিটির জন্য ৪টি ভিন্ন মোবাইলের সুরত (User-Agents)
 const UAS = {
-  anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36", 
-  low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36", 
-  normal: "Mozilla/5.0 (Linux; Android 10; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36", 
-  high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36" 
+  anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36", // JioPhone
+  low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36", // Nexus 5
+  normal: "Mozilla/5.0 (Linux; Android 10; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36", // Galaxy A51
+  high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36" // Pixel 8 Pro
 };
 
 export default function ShortsScreen({ initialVideoId, route }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
 
-  // [NEW LOGIC]: স্ক্রিন অ্যাক্টিভ থাকার স্টেট
+  // [NEW LOGIC]: স্ক্রিন অ্যাক্টিভ আছে কি না তা ট্র্যাক করার স্টেট
   const [isActive, setIsActive] = useState(true);
 
   const [isAutoSkipping, setIsAutoSkipping] = useState(false);
@@ -40,33 +41,29 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   const targetUri = initialVideoId || route?.params?.videoId ? `https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId}` : "https://m.youtube.com/shorts";
 
-  // [CRITICAL FIX]: ফ্রিজ রোধ করতে স্মার্ট ডিসকানেক্ট লজিক
+  // [CRITICAL FIX]: ব্যাক করার সাথে সাথে সম্পর্ক ছিন্ন করার লজিক
   useFocusEffect(
     useCallback(() => {
       setIsActive(true);
       return () => {
-        setIsActive(false); // সাথে সাথে স্ক্রিনকে অদৃশ্য করে দেওয়া হবে
-        
-        // জাভাস্ক্রিপ্ট দিয়ে ভিডিওর প্লেব্যাক এবং ডাটা সাথে সাথে ধ্বংস করা হলো
+        // স্ক্রিন থেকে বের হওয়ার সাথে সাথে ভিডিও পজ করে ধ্বংস করা হচ্ছে
         if (shortsWebViewRef.current) {
           shortsWebViewRef.current.injectJavaScript(`
             try {
-              var videos = document.querySelectorAll('video');
-              for(var i=0; i<videos.length; i++){
-                videos[i].pause();
-                videos[i].removeAttribute('src');
-                videos[i].load();
-              }
+              var v = document.querySelector('video');
+              if(v) { v.pause(); v.removeAttribute('src'); v.load(); }
             } catch(e) {}
             true;
           `);
         }
+        setIsActive(false);
+        setUaReady(false);
       };
     }, [])
   );
 
   useEffect(() => {
-    if (isFocused) {
+    if (isFocused && isActive) {
       setUaReady(false); 
       setShortsLoading(true);
 
@@ -107,7 +104,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
       setTimeout(() => setUaReady(true), 100);
     }
-  }, [isFocused]);
+  }, [isFocused, isActive]);
 
   const restartActionTimer = () => {
     setShowActionBtns(false);
@@ -243,6 +240,11 @@ export default function ShortsScreen({ initialVideoId, route }) {
     }
   };
 
+  // [DISCONNECT LOGIC]: যদি স্ক্রিন ফোকাস না থাকে বা ইউজার ব্যাক করে, তবে WebView একদম আনমাউন্ট (Unmount) হয়ে যাবে
+  if (!isActive || !isFocused) {
+    return <View style={styles.container} />; // পুরোপুরি কালো পর্দা (WebView ধ্বংস)
+  }
+
   if (!uaReady) {
     return (
       <View style={styles.loadingOverlay}>
@@ -253,30 +255,23 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   return (
     <View style={styles.container}>
-      {/* 
-        [FREEZE FIX]: ব্যাক করলে opacity 0 হয়ে যাবে এবং pointerEvents none হবে।
-        এতে ভিজ্যুয়ালি সাথে সাথে গায়েব হয়ে যাবে, কিন্তু ভারী Unmount টি এনিমেশনের পরে হবে।
-        ফলে প্রসেসরে চাপ পড়বে না এবং ফ্রিজ হবে না।
-      */}
-      <View style={{ flex: 1, opacity: isActive ? 1 : 0 }} pointerEvents={isActive ? 'auto' : 'none'}>
-        <WebView
-          key={webviewKey} 
-          ref={shortsWebViewRef} 
-          source={{ uri: targetUri }} 
-          userAgent={deviceUserAgent} 
-          injectedJavaScriptBeforeContentLoaded={hardwareMockScript} 
-          injectedJavaScript={shortsInjectScript} 
-          onMessage={onShortsMessage} 
-          onLoadEnd={() => setShortsLoading(false)} 
-          javaScriptEnabled={true} 
-          containerStyle={{ flex: 1 }} 
-          incognito={true} 
-          cacheEnabled={false} 
-          cacheMode="LOAD_NO_CACHE"
-        />
-      </View>
+      <WebView
+        key={webviewKey} 
+        ref={shortsWebViewRef} 
+        source={{ uri: targetUri }} 
+        userAgent={deviceUserAgent} 
+        injectedJavaScriptBeforeContentLoaded={hardwareMockScript} 
+        injectedJavaScript={shortsInjectScript} 
+        onMessage={onShortsMessage} 
+        onLoadEnd={() => setShortsLoading(false)} 
+        javaScriptEnabled={true} 
+        containerStyle={{ flex: 1 }} 
+        incognito={true} 
+        cacheEnabled={false} 
+        cacheMode="LOAD_NO_CACHE"
+      />
 
-      {isActive && showActionBtns && currentChannel.name !== '' && currentChannel.name !== 'Unknown Channel' && (
+      {showActionBtns && currentChannel.name !== '' && currentChannel.name !== 'Unknown Channel' && (
         <View style={styles.actionRowContainer} pointerEvents="box-none">
             <TouchableOpacity 
               style={[styles.nativeSubBtn, currentChannel.isSubscribed && styles.nativeSubbedBtn]} 
@@ -294,21 +289,21 @@ export default function ShortsScreen({ initialVideoId, route }) {
         </View>
       )}
 
-      {isActive && showUnmuteBtn && (
+      {showUnmuteBtn && (
         <TouchableOpacity activeOpacity={0.8} style={styles.unmuteBadge} onPress={handleUnmutePress}>
           <Ionicons name="volume-mute" size={18} color="#FFF" />
           <Text style={styles.unmuteText}>Unmute</Text>
         </TouchableOpacity>
       )}
 
-      {isActive && isAutoSkipping && (
+      {isAutoSkipping && (
         <View style={styles.skipOverlay}>
           <ActivityIndicator size="large" color="#FF0000" />
           <Text style={styles.skipText}>অ্যাড ফিল্টার হচ্ছে...</Text>
         </View>
       )}
 
-      {isActive && shortsLoading && !isAutoSkipping && (
+      {shortsLoading && !isAutoSkipping && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#FF0000" />
         </View>
