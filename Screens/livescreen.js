@@ -40,9 +40,12 @@ export default function LiveScreen() {
   const [topQueryIndex, setTopQueryIndex] = useState(0);
   const [isFetchingTopChannels, setIsFetchingTopChannels] = useState(false);
 
+  // উপরে টাইম এবং নিচে ব্যাক বাটনের জায়গা শো করানো ও কালার ম্যাচ করা
   useEffect(() => {
     if (isFocused && Platform.OS === 'android') {
-      NavigationBar.setVisibilityAsync("hidden");
+      NavigationBar.setVisibilityAsync("visible");
+      NavigationBar.setBackgroundColorAsync("#0F0F0F"); // অ্যাপের ব্যাকগ্রাউন্ড কালার
+      NavigationBar.setButtonStyleAsync("light"); // আইকনগুলোর কালার (যেহেতু ব্যাকগ্রাউন্ড ডার্ক)
     }
   }, [isFocused]);
 
@@ -83,7 +86,6 @@ export default function LiveScreen() {
     return bestImgUrl.startsWith('//') ? 'https:' + bestImgUrl : bestImgUrl;
   };
 
-  // SearchSettingScreen এর হুবহু লজিক অনুযায়ী Channel স্ক্রিনে পুশ করার ফাংশন
   const navigateToChannel = (item) => {
     setTimeout(() => {
         navigation.navigate('Channel', { 
@@ -117,13 +119,10 @@ export default function LiveScreen() {
                 const channelName = vid.ownerText?.runs?.[0]?.text;
                 const channelId = vid.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId;
                 
-                // SearchSettingScreen এর মতো করে লোগো এক্সট্র্যাক্ট করা হয়েছে
                 const rawAvatarUrl = vid.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url;
                 const finalAvatar = rawAvatarUrl ? (rawAvatarUrl.startsWith('//') ? 'https:' + rawAvatarUrl : rawAvatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
                 
-                // SearchSettingScreen এর মতো চ্যানেল ইউআরএল এক্সট্র্যাক্ট
                 const channelUrl = vid.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
-                
                 const liveVideoId = vid.videoId;
 
                 if (channelName && channelId && liveVideoId) {
@@ -179,7 +178,6 @@ export default function LiveScreen() {
         extractNodes(jsonData);
 
         const formattedVideos = extractedVideos.map(vid => {
-            // SearchSettingScreen এর মতো করে লোগো ও URL এক্সট্র্যাক্ট করা হয়েছে
             const rawAvatarUrl = vid.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url;
             const finalAvatar = rawAvatarUrl ? (rawAvatarUrl.startsWith('//') ? 'https:' + rawAvatarUrl : rawAvatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
             const channelUrl = vid.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
@@ -250,7 +248,8 @@ export default function LiveScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar hidden={true} />
+      {/* স্ট্যাটাস বার শো করানো হয়েছে এবং কালার ম্যাচ করা হয়েছে */}
+      <StatusBar hidden={false} backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
       
       <View style={styles.header}>
         <View style={styles.logoContainer}>
@@ -306,7 +305,8 @@ export default function LiveScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F0F0F' },
+  // paddingTop অ্যাড করা হয়েছে যাতে স্ট্যাটাস বারের নিচে অ্যাপের কন্টেন্ট শুরু হয়
+  container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
