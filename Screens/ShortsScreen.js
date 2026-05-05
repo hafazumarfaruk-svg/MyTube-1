@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Dimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,29 +7,28 @@ import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/n
 
 // ৪টি আলাদা কোয়ালিটির জন্য ৪টি ভিন্ন মোবাইলের সুরত (User-Agents)
 const UAS = {
-  anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36", // JioPhone
-  low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36", // Nexus 5
-  normal: "Mozilla/5.0 (Linux; Android 10; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36", // Galaxy A51
-  high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36" // Pixel 8 Pro
+  anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36",
+  low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36",
+  normal: "Mozilla/5.0 (Linux; Android 10; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36",
+  high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36"
 };
+
+// ডিভাইসের স্ক্রিনের উচ্চতা বের করা হচ্ছে
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BACK_BUTTON_HEIGHT = SCREEN_HEIGHT / 16; // ১৬ ভাগের এক ভাগ
 
 export default function ShortsScreen({ initialVideoId, route }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
 
-  // [NEW LOGIC]: স্ক্রিন অ্যাক্টিভ আছে কি না তা ট্র্যাক করার স্টেট
   const [isActive, setIsActive] = useState(true);
-
   const [isAutoSkipping, setIsAutoSkipping] = useState(false);
   const [shortsLoading, setShortsLoading] = useState(true);
   const [uaReady, setUaReady] = useState(false); 
 
-  const [showUnmuteBtn, setShowUnmuteBtn] = useState(false);
   const [showActionBtns, setShowActionBtns] = useState(false);
-
   const [deviceUserAgent, setDeviceUserAgent] = useState(UAS.normal);
   const [webviewKey, setWebviewKey] = useState(Date.now().toString());
-
   const [hardwareMockScript, setHardwareMockScript] = useState('');
 
   const [currentUrl, setCurrentUrl] = useState(`https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId || ''}`);
@@ -41,12 +40,13 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   const targetUri = initialVideoId || route?.params?.videoId ? `https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId}` : "https://m.youtube.com/shorts";
 
-  // [CRITICAL FIX]: ব্যাক করার সাথে সাথে সম্পর্ক ছিন্ন করার লজিক
+  // [NEW LOGIC]: যদি route.params থেকে fromOtherScreen ভ্যালু true আসে, শুধুমাত্র তখনই ব্যাক বাটন দেখাবে
+  const showBackBtn = route?.params?.fromOtherScreen === true;
+
   useFocusEffect(
     useCallback(() => {
       setIsActive(true);
       return () => {
-        // স্ক্রিন থেকে বের হওয়ার সাথে সাথে ভিডিও পজ করে ধ্বংস করা হচ্ছে
         if (shortsWebViewRef.current) {
           shortsWebViewRef.current.injectJavaScript(`
             try {
@@ -68,7 +68,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
       setShortsLoading(true);
 
       const qualityVal = global.shortVideoQuality || 'Normal Video Quality';
-
       let newUA = UAS.normal;
       let mockJS = '';
 
@@ -76,8 +75,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
         newUA = qualityVal === 'Anti Data Saver Mode' ? UAS.anti : UAS.low;
         mockJS = `
           Object.defineProperty(navigator, 'connection', { get: function() { return { effectiveType: '2g', saveData: true, downlink: 0.1, rtt: 600 }; } });
-          Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 1; } });
-          Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 2; } });
           Object.defineProperty(window, 'devicePixelRatio', { get: function() { return 1; } });
         `;
       } 
@@ -85,8 +82,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
         newUA = UAS.high;
         mockJS = `
           Object.defineProperty(navigator, 'connection', { get: function() { return { effectiveType: '4g', saveData: false, downlink: 10.0, rtt: 50 }; } });
-          Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 8; } });
-          Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 8; } });
           Object.defineProperty(window, 'devicePixelRatio', { get: function() { return 3; } });
         `;
       } 
@@ -116,14 +111,9 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   useEffect(() => {
     if (uaReady && isActive) {
-      setShowUnmuteBtn(false);
       const timerLoading = setTimeout(() => setShortsLoading(false), 2000);
-      const timerUnmute = setTimeout(() => setShowUnmuteBtn(true), 10000); 
       restartActionTimer();
-      return () => { 
-        clearTimeout(timerLoading); 
-        clearTimeout(timerUnmute); 
-      };
+      return () => { clearTimeout(timerLoading); };
     }
   }, [uaReady, targetUri, isActive]);
 
@@ -148,21 +138,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
     try { await Share.share({ message: `Check out this amazing short video: ${currentUrl}` }); } catch (error) {}
   };
 
-  const handleUnmutePress = () => {
-    if (shortsWebViewRef.current) {
-      shortsWebViewRef.current.injectJavaScript(`
-        try {
-            var video = document.querySelector('video');
-            if(video) { video.muted = false; video.play().catch(function(e){}); }
-            var unmuteBtn = document.querySelector('.ytp-unmute, .ytm-unmute, button[aria-label*="unmute"]');
-            if (unmuteBtn) { unmuteBtn.click(); }
-        } catch(e) {}
-        true;
-      `);
-      setShowUnmuteBtn(false); 
-    }
-  };
-
   const shortsInjectScript = `
     (function() {
         try { window.localStorage.clear(); window.sessionStorage.clear(); } catch(e) {}
@@ -172,7 +147,8 @@ export default function ShortsScreen({ initialVideoId, route }) {
                       'ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-like-button-renderer, ' +
                       'ytm-dislike-button-renderer, ytm-comment-button-renderer, ytm-share-button-renderer, ' +
                       'ytm-remix-button-renderer, [aria-label*="Like"], [aria-label*="Comment"], [aria-label*="Share"], ' +
-                      '[aria-label*="লাইক"], [aria-label*="কমেন্ট"] ' +
+                      '[aria-label*="লাইক"], [aria-label*="কমেন্ট"], ' +
+                      'ytp-ad-module, .ytp-ad-overlay-container, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ad-slot, [id^="ad-"] ' +
                       '{ display: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
             var head = document.head || document.getElementsByTagName('head')[0];
             var style = document.createElement('style');
@@ -181,25 +157,19 @@ export default function ShortsScreen({ initialVideoId, route }) {
             head.appendChild(style);
         } catch(e) {}
 
-        setInterval(function() {
+        var observer = new MutationObserver(function(mutations) {
             try {
-                var actionBars = document.querySelectorAll('ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-like-button-renderer');
-                for (var i = 0; i < actionBars.length; i++) {
-                    if(actionBars[i]) {
-                        actionBars[i].style.setProperty('display', 'none', 'important');
-                        actionBars[i].style.setProperty('opacity', '0', 'important');
-                        actionBars[i].style.setProperty('pointer-events', 'none', 'important');
-                        if (actionBars[i].parentElement) actionBars[i].parentElement.style.setProperty('display', 'none', 'important');
-                    }
-                }
-
-                var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button');
+                var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern');
                 if (skipBtn) skipBtn.click();
                 
-                var adShowing = document.querySelector('.ad-showing');
-                var vidElement = document.querySelector('video');
-                if (adShowing && vidElement) vidElement.playbackRate = 16.0;
+                var adVideo = document.querySelector('.ad-showing video');
+                if (adVideo && adVideo.duration) { adVideo.currentTime = adVideo.duration; }
+            } catch(e) {}
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
 
+        setInterval(function() {
+            try {
                 var activeReel = document.querySelector('ytm-reel-video-renderer[is-active]');
                 if (activeReel && window.ReactNativeWebView) {
                     var linkElem = activeReel.querySelector('a[href^="/@"]');
@@ -209,7 +179,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
                     }
                 }
             } catch(err) {}
-        }, 200); 
+        }, 500); 
     })();
     true;
   `;
@@ -240,9 +210,8 @@ export default function ShortsScreen({ initialVideoId, route }) {
     }
   };
 
-  // [DISCONNECT LOGIC]: যদি স্ক্রিন ফোকাস না থাকে বা ইউজার ব্যাক করে, তবে WebView একদম আনমাউন্ট (Unmount) হয়ে যাবে
   if (!isActive || !isFocused) {
-    return <View style={styles.container} />; // পুরোপুরি কালো পর্দা (WebView ধ্বংস)
+    return <View style={styles.container} />; 
   }
 
   if (!uaReady) {
@@ -255,6 +224,19 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   return (
     <View style={styles.container}>
+      
+      {/* হোমস্ক্রিনের মতো হেডার */}
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+           <Ionicons name="logo-youtube" size={28} color="#FF0000" />
+           <Text style={styles.logoText}>MyTube</Text>
+        </View>
+        <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
+          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>সার্চ...</Text>
+          <Ionicons name="search" size={18} color="#AAA" />
+        </TouchableOpacity>
+      </View>
+
       <WebView
         key={webviewKey} 
         ref={shortsWebViewRef} 
@@ -289,13 +271,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
         </View>
       )}
 
-      {showUnmuteBtn && (
-        <TouchableOpacity activeOpacity={0.8} style={styles.unmuteBadge} onPress={handleUnmutePress}>
-          <Ionicons name="volume-mute" size={18} color="#FFF" />
-          <Text style={styles.unmuteText}>Unmute</Text>
-        </TouchableOpacity>
-      )}
-
       {isAutoSkipping && (
         <View style={styles.skipOverlay}>
           <ActivityIndicator size="large" color="#FF0000" />
@@ -308,12 +283,29 @@ export default function ShortsScreen({ initialVideoId, route }) {
           <ActivityIndicator size="large" color="#FF0000" />
         </View>
       )}
+
+      {/* ব্যাক বাটন লজিক: শুধুমাত্র অন্য স্ক্রিন থেকে আসলে দেখাবে */}
+      {showBackBtn && (
+        <TouchableOpacity 
+          style={[styles.bottomBackBtn, { height: BACK_BUTTON_HEIGHT }]} 
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFF" style={{ marginRight: 8 }} />
+          <Text style={styles.bottomBackText}>ফিরে যান</Text>
+        </TouchableOpacity>
+      )}
+
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
+  logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
+  logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+  searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
   loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   skipOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   skipText: { color: '#FFF', marginTop: 15, fontWeight: 'bold' },
@@ -324,5 +316,19 @@ const styles = StyleSheet.create({
   nativeSubbedText: { color: '#AAA' },
   nativeShareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 25, marginLeft: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   nativeShareText: { color: '#FFF', fontWeight: 'bold', fontSize: 13, marginLeft: 6 },
-  unmuteBadge: { position: 'absolute', top: 50, right: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 0, 0, 0.8)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', zIndex: 99999 }
+  
+  bottomBackBtn: {
+    backgroundColor: '#0F0F0F',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#222',
+    width: '100%'
+  },
+  bottomBackText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold'
+  }
 });
