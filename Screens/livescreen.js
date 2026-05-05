@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl, StatusBar, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl, StatusBar, Platform, Dimensions } from 'react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -26,6 +26,9 @@ const TOP_BAR_QUERIES = [
   "live gaming stream"
 ];
 
+// ডিভাইসের স্ক্রিনের হাইট নেওয়া হচ্ছে
+const { height } = Dimensions.get('window');
+
 export default function LiveScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -40,12 +43,11 @@ export default function LiveScreen() {
   const [topQueryIndex, setTopQueryIndex] = useState(0);
   const [isFetchingTopChannels, setIsFetchingTopChannels] = useState(false);
 
-  // উপরে টাইম এবং নিচে ব্যাক বাটনের জায়গা শো করানো ও কালার ম্যাচ করা
   useEffect(() => {
     if (isFocused && Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync("visible");
-      NavigationBar.setBackgroundColorAsync("#0F0F0F"); // অ্যাপের ব্যাকগ্রাউন্ড কালার
-      NavigationBar.setButtonStyleAsync("light"); // আইকনগুলোর কালার (যেহেতু ব্যাকগ্রাউন্ড ডার্ক)
+      NavigationBar.setBackgroundColorAsync("#000000"); // হোম স্ক্রিনের সাথে সামঞ্জস্য রেখে কালো করা হলো
+      NavigationBar.setButtonStyleAsync("light");
     }
   }, [isFocused]);
 
@@ -248,8 +250,8 @@ export default function LiveScreen() {
 
   return (
     <View style={styles.container}>
-      {/* স্ট্যাটাস বার শো করানো হয়েছে এবং কালার ম্যাচ করা হয়েছে */}
-      <StatusBar hidden={false} backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
+      {/* স্ট্যাটাস বার দৃশ্যমান এবং ট্রান্সপারেন্ট রাখা হয়েছে */}
+      <StatusBar hidden={false} backgroundColor="transparent" barStyle="light-content" translucent={true} />
       
       <View style={styles.header}>
         <View style={styles.logoContainer}>
@@ -305,8 +307,12 @@ export default function LiveScreen() {
 }
 
 const styles = StyleSheet.create({
-  // paddingTop অ্যাড করা হয়েছে যাতে স্ট্যাটাস বারের নিচে অ্যাপের কন্টেন্ট শুরু হয়
-  container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#0F0F0F',
+    // আপনার নির্দেশনা অনুযায়ী: স্ক্রিনের ৩২ ভাগের ১ ভাগ ওপরের টাইমের জন্য বরাদ্দ করা হলো
+    paddingTop: height / 32 
+  },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
