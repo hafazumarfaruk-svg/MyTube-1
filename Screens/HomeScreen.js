@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#000000', // ব্যাকগ্রাউন্ড কালো রাখা হয়েছে
     paddingTop: height / 32,    // আপনার নির্দেশনা অনুযায়ী: স্ক্রিনের ৩২ ভাগের ১ ভাগ উপরের টাইমের জন্য
-    paddingBottom: height / 30  // আপনার নির্দেশনা অনুযায়ী: স্ক্রিনের ২৮ ভাগের ১ ভাগ নিচের ব্যাক বাটনের জন্য
+    paddingBottom: height / 20  // আপনার নির্দেশনা অনুযায়ী: স্ক্রিনের ২৮ ভাগের ১ ভাগ নিচের ব্যাক বাটনের জন্য
   },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
