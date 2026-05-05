@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Dimensions, Platform, StatusBar, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Dimensions, Platform, StatusBar } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,7 +38,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   const targetUri = initialVideoId || route?.params?.videoId ? `https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId}` : "https://m.youtube.com/shorts";
 
-  // [UPDATE 3]: ব্যাক বাটনের স্মার্ট লজিক। রুট প্যারামিটারে videoId থাকলে বুঝতে হবে এটি চ্যানেল বা অন্য স্ক্রিন থেকে এসেছে।
   const showBackBtn = route?.params && route?.params?.videoId !== undefined;
 
   useFocusEffect(
@@ -136,7 +135,6 @@ export default function ShortsScreen({ initialVideoId, route }) {
     try { await Share.share({ message: `Check out this amazing short video: ${currentUrl}` }); } catch (error) {}
   };
 
-  // [UPDATE 1]: লাইক, কমেন্ট ইত্যাদি বাটন একেবারে রুট থেকে হাইড করার অ্যাগ্রেসিভ স্ক্রিপ্ট
   const shortsInjectScript = `
     (function() {
         try { window.localStorage.clear(); window.sessionStorage.clear(); } catch(e) {}
@@ -147,6 +145,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
                       'ytm-dislike-button-renderer, ytm-comment-button-renderer, ytm-share-button-renderer, ' +
                       'ytm-remix-button-renderer, [aria-label*="Like"], [aria-label*="Comment"], [aria-label*="Share"], ' +
                       '[aria-label*="লাইক"], [aria-label*="কমেন্ট"], ' +
+                      'ytm-reel-player-overlay-main-content, .reel-player-overlay-main-content, ' + // চ্যানেল লোগো এবং টেক্সট হাইড করার সিলেক্টর
                       'ytp-ad-module, .ytp-ad-overlay-container, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ad-slot, [id^="ad-"] ' +
                       '{ display: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; visibility: hidden !important; pointer-events: none !important; z-index: -9999 !important; }';
             
@@ -160,13 +159,12 @@ export default function ShortsScreen({ initialVideoId, route }) {
                 head.appendChild(style);
             }
 
-            // জাভাস্ক্রিপ্ট দিয়ে জোরপূর্বক এলিমেন্ট খালি করে দেওয়া
-            var actionBars = document.querySelectorAll('ytm-reel-player-overlay-actions, .reel-player-overlay-actions');
-            for (var i = 0; i < actionBars.length; i++) {
-                if (actionBars[i]) {
-                    actionBars[i].style.display = 'none';
-                    actionBars[i].style.opacity = '0';
-                    actionBars[i].innerHTML = ''; 
+            var elementsToHide = document.querySelectorAll('ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-reel-player-overlay-main-content, .reel-player-overlay-main-content');
+            for (var i = 0; i < elementsToHide.length; i++) {
+                if (elementsToHide[i]) {
+                    elementsToHide[i].style.display = 'none';
+                    elementsToHide[i].style.opacity = '0';
+                    elementsToHide[i].innerHTML = ''; 
                 }
             }
         };
@@ -174,7 +172,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
         executeHideProtocol();
 
         var observer = new MutationObserver(function(mutations) {
-            executeHideProtocol(); // কন্টিনিউয়াস প্রটেকশন
+            executeHideProtocol(); 
             try {
                 var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern');
                 if (skipBtn) skipBtn.click();
@@ -241,8 +239,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
   }
 
   return (
-    // [UPDATE 2]: SafeAreaView যুক্ত করা হয়েছে যেন টাইমের নিচে হেডার শো করে
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
       
       <View style={styles.header}>
@@ -303,26 +300,36 @@ export default function ShortsScreen({ initialVideoId, route }) {
         </View>
       )}
 
-      {/* ব্যাক বাটন */}
       {showBackBtn && (
         <TouchableOpacity 
           style={[styles.bottomBackBtn, { height: BACK_BUTTON_HEIGHT }]} 
           onPress={() => navigation.goBack()}
           activeOpacity={0.8}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFF" style={{ marginRight: 8 }} />
-          <Text style={styles.bottomBackText}>ফিরে যান</Text>
+          <Ionicons name="arrow-back" size={28} color="#FFF" />
         </TouchableOpacity>
       )}
 
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // [UPDATE 2 CSS]: paddingTop সেট করে ওভারল্যাপ ফিক্স করা হলো
-  container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#000', 
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 
+  },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 12, 
+    height: 52, // উচ্চতা ফিক্স করে দেওয়া হয়েছে যেন অতিরিক্ত জায়গা না নেয়
+    borderBottomWidth: 1, 
+    borderBottomColor: '#222', 
+    width: '100%', 
+    backgroundColor: '#0F0F0F' 
+  },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
   searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
@@ -339,16 +346,10 @@ const styles = StyleSheet.create({
   
   bottomBackBtn: {
     backgroundColor: '#0F0F0F',
-    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: '#222',
     width: '100%'
-  },
-  bottomBackText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold'
   }
 });
