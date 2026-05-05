@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import SettingsScreen from '../Settings/SettingsScreen';
 import ShortsScreen from './ShortsScreen'; 
-import LiveScreen from './livescreen'; // লাইভ স্ক্রিন ফাইল ইমপোর্ট করা হলো
+import LiveScreen from './livescreen'; 
 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const FEED_TOPICS = [ "trending bangladesh", "bangla natok 2026", "bangla new song", "somoy tv live", "cricket highlights", "bangla waz short", "bengali vlog", "bangla news today" ];
@@ -59,7 +59,16 @@ export default function HomeScreen({ route }) {
         if (!activeQuery) setActiveQuery(await getAlgorithmicTopic());
       } catch (e) {}
     };
-    if (isFocused) loadGlobalData();
+
+    if (isFocused) {
+      loadGlobalData();
+      // [FIXED]: নিচের সিস্টেম ব্যাক বাটনগুলো কালো দাগের মাঝে রাখার ব্যবস্থা করা হলো
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync("visible");
+        NavigationBar.setBackgroundColorAsync("#000000"); // কালো ব্যাকগ্রাউন্ড
+        NavigationBar.setButtonStyleAsync("light");
+      }
+    }
   }, [isFocused]);
 
   useEffect(() => {
@@ -71,7 +80,7 @@ export default function HomeScreen({ route }) {
 
   useEffect(() => {
     if (activeQuery) fetchRealVideos(activeQuery, true);
-    if (Platform.OS === 'android') NavigationBar.setVisibilityAsync("hidden");
+    // [FIXED]: এখান থেকে hide করার কোডটি মুছে ফেলা হয়েছে যাতে বাটনগুলো মিশে না যায়
   }, [activeQuery]);
 
   const handleRefresh = async () => {
@@ -170,7 +179,6 @@ export default function HomeScreen({ route }) {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
 
-      {/* [UPDATED]: এখানে activeTab !== 'Live' কন্ডিশন যোগ করা হয়েছে যাতে লাইভ স্ক্রিনে ডাবল হেডার না দেখায় */}
       {activeTab !== 'Shorts' && activeTab !== 'Live' && activeTab !== 'ME' && activeTab !== 'Settings' && (
         <View style={styles.header}>
           <View style={styles.logoContainer}>
