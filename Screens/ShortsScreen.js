@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Dimensions, Platform, StatusBar, SafeAreaView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 
-// ৪টি আলাদা কোয়ালিটির জন্য ৪টি ভিন্ন মোবাইলের সুরত (User-Agents)
 const UAS = {
   anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36",
   low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36",
@@ -13,9 +12,8 @@ const UAS = {
   high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36"
 };
 
-// ডিভাইসের স্ক্রিনের উচ্চতা বের করা হচ্ছে
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const BACK_BUTTON_HEIGHT = SCREEN_HEIGHT / 16; // ১৬ ভাগের এক ভাগ
+const BACK_BUTTON_HEIGHT = SCREEN_HEIGHT / 16; 
 
 export default function ShortsScreen({ initialVideoId, route }) {
   const navigation = useNavigation();
@@ -40,8 +38,8 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
   const targetUri = initialVideoId || route?.params?.videoId ? `https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId}` : "https://m.youtube.com/shorts";
 
-  // [NEW LOGIC]: যদি route.params থেকে fromOtherScreen ভ্যালু true আসে, শুধুমাত্র তখনই ব্যাক বাটন দেখাবে
-  const showBackBtn = route?.params?.fromOtherScreen === true;
+  // [UPDATE 3]: ব্যাক বাটনের স্মার্ট লজিক। রুট প্যারামিটারে videoId থাকলে বুঝতে হবে এটি চ্যানেল বা অন্য স্ক্রিন থেকে এসেছে।
+  const showBackBtn = route?.params && route?.params?.videoId !== undefined;
 
   useFocusEffect(
     useCallback(() => {
@@ -138,26 +136,45 @@ export default function ShortsScreen({ initialVideoId, route }) {
     try { await Share.share({ message: `Check out this amazing short video: ${currentUrl}` }); } catch (error) {}
   };
 
+  // [UPDATE 1]: লাইক, কমেন্ট ইত্যাদি বাটন একেবারে রুট থেকে হাইড করার অ্যাগ্রেসিভ স্ক্রিপ্ট
   const shortsInjectScript = `
     (function() {
         try { window.localStorage.clear(); window.sessionStorage.clear(); } catch(e) {}
 
-        try {
-            var css = 'ytm-mobile-topbar-renderer, ytm-pivot-bar-renderer, header, .ytm-bottom-sheet { display: none !important; } ' +
+        var executeHideProtocol = function() {
+            var css = 'ytm-mobile-topbar-renderer, ytm-pivot-bar-renderer, header, .ytm-bottom-sheet { display: none !important; height: 0 !important; opacity: 0 !important; visibility: hidden !important; } ' +
                       'ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-like-button-renderer, ' +
                       'ytm-dislike-button-renderer, ytm-comment-button-renderer, ytm-share-button-renderer, ' +
                       'ytm-remix-button-renderer, [aria-label*="Like"], [aria-label*="Comment"], [aria-label*="Share"], ' +
                       '[aria-label*="লাইক"], [aria-label*="কমেন্ট"], ' +
                       'ytp-ad-module, .ytp-ad-overlay-container, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ad-slot, [id^="ad-"] ' +
-                      '{ display: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
+                      '{ display: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; visibility: hidden !important; pointer-events: none !important; z-index: -9999 !important; }';
+            
             var head = document.head || document.getElementsByTagName('head')[0];
-            var style = document.createElement('style');
-            style.type = 'text/css';
-            style.appendChild(document.createTextNode(css));
-            head.appendChild(style);
-        } catch(e) {}
+            var styleNode = document.getElementById('my-tube-adblock-style');
+            if (!styleNode) {
+                var style = document.createElement('style');
+                style.id = 'my-tube-adblock-style';
+                style.type = 'text/css';
+                style.appendChild(document.createTextNode(css));
+                head.appendChild(style);
+            }
+
+            // জাভাস্ক্রিপ্ট দিয়ে জোরপূর্বক এলিমেন্ট খালি করে দেওয়া
+            var actionBars = document.querySelectorAll('ytm-reel-player-overlay-actions, .reel-player-overlay-actions');
+            for (var i = 0; i < actionBars.length; i++) {
+                if (actionBars[i]) {
+                    actionBars[i].style.display = 'none';
+                    actionBars[i].style.opacity = '0';
+                    actionBars[i].innerHTML = ''; 
+                }
+            }
+        };
+
+        executeHideProtocol();
 
         var observer = new MutationObserver(function(mutations) {
+            executeHideProtocol(); // কন্টিনিউয়াস প্রটেকশন
             try {
                 var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern');
                 if (skipBtn) skipBtn.click();
@@ -166,9 +183,10 @@ export default function ShortsScreen({ initialVideoId, route }) {
                 if (adVideo && adVideo.duration) { adVideo.currentTime = adVideo.duration; }
             } catch(e) {}
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
 
         setInterval(function() {
+            executeHideProtocol();
             try {
                 var activeReel = document.querySelector('ytm-reel-video-renderer[is-active]');
                 if (activeReel && window.ReactNativeWebView) {
@@ -223,9 +241,10 @@ export default function ShortsScreen({ initialVideoId, route }) {
   }
 
   return (
-    <View style={styles.container}>
+    // [UPDATE 2]: SafeAreaView যুক্ত করা হয়েছে যেন টাইমের নিচে হেডার শো করে
+    <SafeAreaView style={styles.container}>
+      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
       
-      {/* হোমস্ক্রিনের মতো হেডার */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <Ionicons name="logo-youtube" size={28} color="#FF0000" />
@@ -284,7 +303,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
         </View>
       )}
 
-      {/* ব্যাক বাটন লজিক: শুধুমাত্র অন্য স্ক্রিন থেকে আসলে দেখাবে */}
+      {/* ব্যাক বাটন */}
       {showBackBtn && (
         <TouchableOpacity 
           style={[styles.bottomBackBtn, { height: BACK_BUTTON_HEIGHT }]} 
@@ -296,12 +315,13 @@ export default function ShortsScreen({ initialVideoId, route }) {
         </TouchableOpacity>
       )}
 
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  // [UPDATE 2 CSS]: paddingTop সেট করে ওভারল্যাপ ফিক্স করা হলো
+  container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
   logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
