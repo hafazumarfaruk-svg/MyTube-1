@@ -10,6 +10,148 @@ const { width, height } = Dimensions.get('window');
 const PLAYER_HEIGHT = (width * 9) / 16; 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
+// =========================================================
+// [NEW]: সম্পূর্ণ আলাদা 3D কম্পোনেন্ট (পারফরম্যান্স স্মুথ করার জন্য)
+// =========================================================
+const ThreeDDownloadModal = ({ visible, onClose, downloadLinks, downloadType, onToggleType, isLoading, onExecute }) => {
+    const [rotation, setRotation] = useState({ x: 0, y: 0 });
+    const rotationRef = useRef({ x: 0, y: 0 });
+
+    const panResponder = useRef(
+        PanResponder.create({
+            // শুধুমাত্র সোয়াইপ করলেই এটি কাজ করবে, সাধারণ টাচ বা ক্লিকে বাধা দেবে না
+            onMoveShouldSetPanResponder: (evt, gestureState) => {
+                return Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3;
+            },
+            onPanResponderMove: (evt, gestureState) => {
+                // ন্যাচারাল সোয়াইপ ফিল দেওয়ার জন্য মাইনাস/প্লাস ব্যালেন্স করা হয়েছে
+                setRotation({
+                    x: rotationRef.current.x - gestureState.dy * 0.6,
+                    y: rotationRef.current.y + gestureState.dx * 0.6
+                });
+            },
+            onPanResponderRelease: (evt, gestureState) => {
+                rotationRef.current.x -= gestureState.dy * 0.6;
+                rotationRef.current.y += gestureState.dx * 0.6;
+            }
+        })
+    ).current;
+
+    // মডাল ওপেন হলে রোটেশন রিসেট করা
+    useEffect(() => {
+        if (visible) {
+            setRotation({ x: 0, y: 0 });
+            rotationRef.current = { x: 0, y: 0 };
+        }
+    }, [visible]);
+
+    let backgroundCards = [];
+    let foregroundCards = [];
+
+    if (!isLoading && downloadLinks.length > 0) {
+        // সর্বোচ্চ ১২টি লিংক রেন্ডার করা হবে যাতে ওভারল্যাপ বেশি না হয়
+        const displayLinks = downloadLinks.slice(0, 12);
+        const N = displayLinks.length;
+        const radius = 160; // 3D বৃত্তের সাইজ
+
+        const mappedCards = displayLinks.map((item, index) => {
+            const angle = (index / N) * Math.PI * 2;
+            const yOffset = N > 6 ? (index % 2 === 0 ? 45 : -45) : 0; 
+
+            const baseZ = Math.sin(angle) * radius;
+            const baseX = Math.cos(angle) * radius;
+            const baseY = yOffset;
+
+            const p = rotation.x * Math.PI / 180;
+            const yw = rotation.y * Math.PI / 180;
+
+            const y1 = baseY * Math.cos(p) - baseZ * Math.sin(p);
+            const z1 = baseY * Math.sin(p) + baseZ * Math.cos(p);
+            const x2 = baseX * Math.cos(yw) + z1 * Math.sin(yw);
+            const z2 = -baseX * Math.sin(yw) + z1 * Math.cos(yw);
+
+            const perspective = 800;
+            const scale = perspective / (perspective - z2);
+            const opacity = Math.max(0.15, Math.min(1, scale - 0.2)); 
+
+            return { item, index, x: x2 * scale, y: y1 * scale, z: z2, scale, opacity };
+        });
+
+        mappedCards.sort((a, b) => a.z - b.z);
+
+        backgroundCards = mappedCards.filter(c => c.z < 0);
+        foregroundCards = mappedCards.filter(c => c.z >= 0);
+    }
+
+    const renderCard = (c) => (
+        <TouchableOpacity 
+            key={c.index} 
+            style={[
+                styles.floatingGlassCard, 
+                { 
+                    transform: [{ translateX: c.x }, { translateY: c.y }, { scale: c.scale }],
+                    opacity: c.opacity,
+                    zIndex: Math.round(c.z)
+                }
+            ]} 
+            activeOpacity={0.8}
+            onPress={() => onExecute(c.item)}
+        >
+            <Text style={styles.floatingType}>{downloadType === 'video' ? 'MP4' : 'MP3'}</Text>
+            <Text style={styles.floatingQuality}>{c.item.quality}</Text>
+            <Text style={styles.floatingSize}>{c.item.size || (downloadType === 'video' ? '≈ HD' : '≈ 128kbps')}</Text>
+        </TouchableOpacity>
+    );
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={styles.threeDOverlay} {...panResponder.panHandlers}>
+                
+                {/* ডানপাশের উপরে থাকা ক্লোজ বাটন */}
+                <TouchableOpacity style={styles.closeTopRightBtn} onPress={onClose}>
+                    <Ionicons name="close" size={28} color="#FFF" />
+                </TouchableOpacity>
+
+                <View style={styles.threeDCluster}>
+                    {/* পেছনের কার্ডগুলো */}
+                    {backgroundCards.map(renderCard)}
+
+                    {/* সেন্টার কিউব */}
+                    <TouchableOpacity 
+                        style={[
+                            styles.centerGlassCube,
+                            {
+                                transform: [
+                                    { perspective: 800 },
+                                    { rotateX: `${-rotation.x}deg` },
+                                    { rotateY: `${rotation.y}deg` }
+                                ],
+                                zIndex: 0
+                            }
+                        ]} 
+                        activeOpacity={0.9} 
+                        onPress={onToggleType}
+                    >
+                        {isLoading ? (
+                            <ActivityIndicator size="large" color="#FFF" />
+                        ) : (
+                            <>
+                                <Ionicons name="videocam" size={32} color={downloadType === 'video' ? '#00BFA5' : 'rgba(255,255,255,0.4)'} />
+                                <Ionicons name="swap-vertical" size={24} color="#888" style={{ marginVertical: 8 }} />
+                                <Ionicons name="musical-notes" size={32} color={downloadType === 'audio' ? '#00BFA5' : 'rgba(255,255,255,0.4)'} />
+                            </>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* সামনের কার্ডগুলো */}
+                    {foregroundCards.map(renderCard)}
+                </View>
+            </View>
+        </Modal>
+    );
+};
+// =========================================================
+
 export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
 
@@ -28,30 +170,6 @@ export default function PlayerScreen({ route, navigation }) {
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [isAudioMode, setIsAudioMode] = useState(videoData?.type === 'audio');
-
-  // 3D Rotation State and PanResponder
-  const [rotation, setRotation] = useState({ x: 0, y: 0 });
-  const rotationRef = useRef({ x: 0, y: 0 });
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false, 
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-          // শুধুমাত্র সোয়াইপ করলে 3D ঘুরবে, সাধারণ ট্যাপ ব্লক করবে না
-          return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
-      },
-      onPanResponderMove: (evt, gestureState) => {
-          setRotation({
-              x: rotationRef.current.x + gestureState.dy * 0.5,
-              y: rotationRef.current.y + gestureState.dx * 0.5
-          });
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-          rotationRef.current.x += gestureState.dy * 0.5;
-          rotationRef.current.y += gestureState.dx * 0.5;
-      }
-    })
-  ).current;
 
   useFocusEffect(
     useCallback(() => {
@@ -136,8 +254,6 @@ export default function PlayerScreen({ route, navigation }) {
       setShow3DModal(true);
       setDownloadType('video'); 
       setDownloadStep('fetching');
-      setRotation({ x: 0, y: 0 }); // ওপেন হওয়ার সময় পজিশন রিসেট
-      rotationRef.current = { x: 0, y: 0 };
       fetchDownloadLinks('video');
   };
 
@@ -264,69 +380,6 @@ export default function PlayerScreen({ route, navigation }) {
     </View>
   );
 
-  // 3D ক্যালকুলেশন লজিক
-  let backgroundCards = [];
-  let foregroundCards = [];
-
-  if (downloadStep === 'list') {
-      const N = downloadLinks.length;
-      const radius = 150;
-
-      const mappedCards = downloadLinks.map((item, index) => {
-          // চারদিকে কার্ডগুলোকে সমানভাবে গোল করে সাজানো
-          const angle = (index / N) * Math.PI * 2;
-          // বেশি লিংক থাকলে জিগ-জ্যাগ প্যাটার্নে সাজানো যেন ওভারল্যাপ না করে
-          const yOffset = N > 4 ? (index % 2 === 0 ? 50 : -50) : 0; 
-
-          const baseZ = Math.sin(angle) * radius;
-          const baseX = Math.cos(angle) * radius;
-          const baseY = yOffset;
-
-          // PanResponder থেকে পাওয়া রোটেশন ডিগ্রি থেকে রেডিয়ানে কনভার্ট
-          const p = rotation.x * Math.PI / 180;
-          const yw = rotation.y * Math.PI / 180;
-
-          // X-অক্ষ এবং Y-অক্ষে রোটেশন ম্যাট্রিক্স
-          const y1 = baseY * Math.cos(p) - baseZ * Math.sin(p);
-          const z1 = baseY * Math.sin(p) + baseZ * Math.cos(p);
-          const x2 = baseX * Math.cos(yw) + z1 * Math.sin(yw);
-          const z2 = -baseX * Math.sin(yw) + z1 * Math.cos(yw);
-
-          const perspective = 800;
-          const scale = perspective / (perspective - z2);
-          const opacity = Math.max(0.2, Math.min(1, scale - 0.1)); // পেছনের কার্ডগুলো একটু আবছা হবে
-
-          return { item, index, x: x2 * scale, y: y1 * scale, z: z2, scale, opacity };
-      });
-
-      // Z-Depth অনুযায়ী সর্ট করা (পেছন থেকে সামনে)
-      mappedCards.sort((a, b) => a.z - b.z);
-
-      // কিউবের পেছনের কার্ড এবং সামনের কার্ড আলাদা করা
-      backgroundCards = mappedCards.filter(c => c.z < 0);
-      foregroundCards = mappedCards.filter(c => c.z >= 0);
-  }
-
-  const renderCard = (c) => (
-      <TouchableOpacity 
-          key={c.index} 
-          style={[
-              styles.floatingGlassCard, 
-              { 
-                  transform: [{ translateX: c.x }, { translateY: c.y }, { scale: c.scale }],
-                  opacity: c.opacity,
-                  zIndex: Math.round(c.z)
-              }
-          ]} 
-          activeOpacity={0.8}
-          onPress={() => handleDownloadExecute(c.item)}
-      >
-          <Text style={styles.floatingType}>{downloadType === 'video' ? 'MP4' : 'MP3'}</Text>
-          <Text style={styles.floatingQuality}>{c.item.quality}</Text>
-          <Text style={styles.floatingSize}>{c.item.size || (downloadType === 'video' ? '≈ HD' : '≈ 128kbps')}</Text>
-      </TouchableOpacity>
-  );
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar hidden={true} /> 
@@ -390,53 +443,16 @@ export default function PlayerScreen({ route, navigation }) {
           />
       )}
 
-      {/* 3D Glassmorphism Download UI with Touch Rotation */}
-      <Modal visible={show3DModal} transparent animationType="fade" onRequestClose={() => setShow3DModal(false)}>
-        <View style={styles.threeDOverlay} {...panResponder.panHandlers}>
-           
-           {/* টপ-রাইট ক্লোজ বাটন */}
-           <TouchableOpacity style={styles.closeTopRightBtn} onPress={() => setShow3DModal(false)}>
-               <Ionicons name="close" size={28} color="#FFF" />
-           </TouchableOpacity>
-
-           <View style={styles.threeDCluster}>
-              
-              {/* পেছনের কার্ডগুলো আগে রেন্ডার হবে */}
-              {backgroundCards.map(renderCard)}
-
-              {/* সেন্টার কিউব */}
-              <TouchableOpacity 
-                 style={[
-                     styles.centerGlassCube,
-                     {
-                         transform: [
-                             { perspective: 800 },
-                             { rotateX: `${-rotation.x}deg` },
-                             { rotateY: `${rotation.y}deg` }
-                         ],
-                         zIndex: 0
-                     }
-                 ]} 
-                 activeOpacity={0.9} 
-                 onPress={toggle3DDownloadType}
-              >
-                  {downloadStep === 'fetching' ? (
-                      <ActivityIndicator size="large" color="#FFF" />
-                  ) : (
-                      <>
-                        <Ionicons name="videocam" size={32} color={downloadType === 'video' ? '#00BFA5' : 'rgba(255,255,255,0.4)'} />
-                        <Ionicons name="swap-vertical" size={24} color="#888" style={{ marginVertical: 8 }} />
-                        <Ionicons name="musical-notes" size={32} color={downloadType === 'audio' ? '#00BFA5' : 'rgba(255,255,255,0.4)'} />
-                      </>
-                  )}
-              </TouchableOpacity>
-
-              {/* সামনের কার্ডগুলো পরে রেন্ডার হবে */}
-              {foregroundCards.map(renderCard)}
-
-           </View>
-        </View>
-      </Modal>
+      {/* অপ্টিমাইজড 3D মডাল রেন্ডার */}
+      <ThreeDDownloadModal 
+          visible={show3DModal} 
+          onClose={() => setShow3DModal(false)}
+          downloadLinks={downloadLinks}
+          downloadType={downloadType}
+          isLoading={downloadStep === 'fetching'}
+          onToggleType={toggle3DDownloadType}
+          onExecute={handleDownloadExecute}
+      />
 
     </SafeAreaView>
   );
@@ -493,47 +509,48 @@ const styles = StyleSheet.create({
     recMeta: { color: '#AAA', fontSize: 12, marginTop: 4 },
     recViewsInfo: { color: '#888', fontSize: 11, marginTop: 2 },
     
-    // 3D Floating UI Styles
-    threeDOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
+    // ==========================================
+    // 3D UI Styles
+    // ==========================================
+    threeDOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.88)', justifyContent: 'center', alignItems: 'center' },
     threeDCluster: { position: 'relative', width: 0, height: 0, justifyContent: 'center', alignItems: 'center' },
     
     centerGlassCube: {
         position: 'absolute',
         width: 120, height: 120,
-        marginLeft: -60, marginTop: -60, // একদম সেন্টারে রাখার জন্য
-        backgroundColor: 'rgba(25, 25, 25, 0.85)',
+        marginLeft: -60, marginTop: -60, 
+        backgroundColor: 'rgba(25, 25, 25, 0.9)',
         borderWidth: 1.5, borderColor: 'rgba(255, 255, 255, 0.15)',
         borderRadius: 25,
         justifyContent: 'center', alignItems: 'center',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 15 },
-        shadowOpacity: 0.5, shadowRadius: 20,
+        shadowColor: '#00BFA5', shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3, shadowRadius: 30,
         elevation: 15
     },
 
     floatingGlassCard: {
         position: 'absolute',
-        width: 100, height: 65,
-        marginLeft: -50, marginTop: -32.5, // সেন্টারিং
-        backgroundColor: 'rgba(30, 30, 30, 0.85)',
-        borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)',
-        borderRadius: 12,
+        width: 110, height: 65,
+        marginLeft: -55, marginTop: -32.5,
+        backgroundColor: 'rgba(30, 30, 30, 0.95)',
+        borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.25)',
+        borderRadius: 14,
         alignItems: 'center', justifyContent: 'center',
         shadowColor: '#000', shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.6, shadowRadius: 15,
+        shadowOpacity: 0.8, shadowRadius: 15,
     },
     floatingType: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
-    floatingQuality: { color: '#00BFA5', fontSize: 11, marginTop: 2, fontWeight: '600' },
+    floatingQuality: { color: '#00BFA5', fontSize: 11, marginTop: 2, fontWeight: '700' },
     floatingSize: { color: '#AAA', fontSize: 10, marginTop: 2 },
 
-    // ডানপাশের উপরে থাকা ক্লোজ বাটন
     closeTopRightBtn: {
         position: 'absolute', 
-        top: Platform.OS === 'ios' ? 50 : 30, 
-        right: 20,
+        top: Platform.OS === 'ios' ? 55 : 35, 
+        right: 25,
         backgroundColor: 'rgba(255, 255, 255, 0.15)',
         width: 44, height: 44, borderRadius: 22,
         justifyContent: 'center', alignItems: 'center',
-        borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)',
+        borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.4)',
         zIndex: 9999
     }
 });
