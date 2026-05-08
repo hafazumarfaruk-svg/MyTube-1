@@ -53,7 +53,7 @@ export default function GlobalPlayer() {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
-    }, 4000); // ডিটেইলস পড়ার সুবিধার জন্য কন্ট্রোল হাইড হওয়ার সময় বাড়িয়ে 4 সেকেন্ড করা হলো
+    }, 2000); 
   };
 
   useEffect(() => {
@@ -86,6 +86,7 @@ export default function GlobalPlayer() {
       if (fetchId !== fetchIdRef.current) return;
 
       if (json.success && json.url) {
+          // সার্ভার থেকে চেক করা হচ্ছে এটি combined (480p/720p) নাকি separate
           setStreamMode(json.streamType || 'combined');
           setStreamUrl(json.url);
           setAudioOnlyUrl(json.audioUrl || null); 
@@ -185,6 +186,8 @@ export default function GlobalPlayer() {
         setIsAudioMode(isAudio);
         await setBackgroundAudio(isAudio); 
 
+        // [মূল লজিক] যদি Separate (High Quality) হয়, তবেই ভিডিও রিস্টার্ট করে শুধু অডিও লিংক লোড করবে
+        // যদি Combined (480p/720p) হয়, তবে কোনো রিলোড হবে না, শুধু ভিডিওর উপর ওভারলে চলে আসবে
         if (streamMode === 'separate') {
             setVideoKey(Date.now().toString()); 
         }
@@ -268,6 +271,7 @@ export default function GlobalPlayer() {
   if (playerState === 'hidden') return null;
   const isFull = playerState === 'full';
 
+  // [ডেটা সেভিং লজিক]: Separate মোডে ভিডিও রিমুভ করে শুধু অডিও লিংক ব্যবহার করা হচ্ছে
   let activeSourceUrl = streamUrl;
   if (isAudioMode && streamMode === 'separate' && audioOnlyUrl) {
       activeSourceUrl = audioOnlyUrl;
@@ -291,32 +295,15 @@ export default function GlobalPlayer() {
                 />
             )}
 
-            {/* [NEW] Detailed Stats Info Box */}
-            {isFull && showControls && streamUrl && (
-                <View style={styles.statsBox}>
-                    <Text style={styles.statsHeader}>📊 Stream Info (Stats for Nerds)</Text>
-                    <Text style={styles.statsLabel}>Mode: <Text style={styles.statsValue}>{streamMode.toUpperCase()}</Text></Text>
-                    <Text style={styles.statsLabel}>Bg Audio: <Text style={styles.statsValue}>{isAudioMode ? "ON" : "OFF"}</Text></Text>
-
-                    {streamMode === 'separate' ? (
-                        <>
-                            <Text style={styles.statsLabel}>
-                                Video Link: {isAudioMode 
-                                    ? <Text style={styles.statsDisconnected}>[DISCONNECTED - Data Saver]</Text> 
-                                    : <Text style={styles.statsLink} numberOfLines={1}>{streamUrl}</Text>}
-                            </Text>
-                            <Text style={styles.statsLabel}>
-                                Audio Link: <Text style={styles.statsLink} numberOfLines={1}>{audioOnlyUrl || "Loading..."}</Text>
-                            </Text>
-                        </>
-                    ) : (
-                        <Text style={styles.statsLabel}>
-                            Media Link: <Text style={styles.statsLink} numberOfLines={1}>{streamUrl}</Text>
-                        </Text>
-                    )}
+            {isFull && showControls && activeSourceUrl && (
+                <View style={styles.linkOverlayBox}>
+                    <Text style={styles.linkOverlayText} numberOfLines={2}>
+                        {activeSourceUrl}
+                    </Text>
                 </View>
             )}
 
+            {/* কোনো লোডিং ছাড়াই Combined ভিডিও হাইড করার জন্য ওভারলে */}
             {isAudioMode && (
                 <View style={styles.audioModeOverlay}>
                     {videoData?.thumbnail && (
@@ -436,24 +423,24 @@ const styles = StyleSheet.create({
   videoWrapper: { flex: 1, position: 'relative', justifyContent: 'center' },
   video: { width: '100%', height: '100%' },
 
-  // [NEW] Detailed Stats Box Styles
-  statsBox: {
+  linkOverlayBox: {
       position: 'absolute',
       top: 50, 
       left: 10,
       right: 10,
-      backgroundColor: 'rgba(20, 20, 20, 0.85)',
-      padding: 10,
-      borderRadius: 8,
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      padding: 6,
+      borderRadius: 6,
       zIndex: 150,
       borderWidth: 1,
-      borderColor: '#333'
+      borderColor: '#00BFA5'
   },
-  statsHeader: { color: '#FFF', fontSize: 12, fontWeight: 'bold', marginBottom: 4, borderBottomWidth: 1, borderBottomColor: '#444', paddingBottom: 2 },
-  statsLabel: { color: '#AAA', fontSize: 10, marginTop: 2, fontFamily: 'monospace' },
-  statsValue: { color: '#00BFA5', fontWeight: 'bold' },
-  statsLink: { color: '#5C6BC0' }, // লিংকের কালার ব্লু/ইন্ডিগো
-  statsDisconnected: { color: '#FF5252', fontWeight: 'bold' }, // বিচ্ছিন্ন হয়ে গেলে রেড কালার
+  linkOverlayText: {
+      color: '#00BFA5',
+      fontSize: 10,
+      fontFamily: 'monospace',
+      textAlign: 'left'
+  },
 
   audioModeOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5, backgroundColor: '#111' },
   audioBlurThumb: { position: 'absolute', width: '100%', height: '100%', opacity: 0.6 },
