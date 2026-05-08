@@ -32,7 +32,7 @@ export default function GlobalPlayer() {
   const [playerState, setPlayerState] = useState('hidden'); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [audioOnlyUrl, setAudioOnlyUrl] = useState(null); // শুধুমাত্র অডিও লিংক
+  const [audioOnlyUrl, setAudioOnlyUrl] = useState(null); 
   const [streamMode, setStreamMode] = useState('combined'); 
   const [isPlaying, setIsPlaying] = useState(true);
   const [isAudioMode, setIsAudioMode] = useState(false);
@@ -106,7 +106,6 @@ export default function GlobalPlayer() {
 
         if (streamMode === 'separate') {
             if (!isAudioMode) {
-                // ভিডিও মোড সিংক
                 try {
                     const audioStatus = await syncAudioRef.current.getStatusAsync();
                     if (audioStatus.isLoaded) {
@@ -118,7 +117,6 @@ export default function GlobalPlayer() {
                     }
                 } catch(e) {}
             } else {
-                // অডিও মোডে থাকলে ডাবল সাউন্ড অফ
                 try {
                     const audioStatus = await syncAudioRef.current.getStatusAsync();
                     if (audioStatus.isLoaded && audioStatus.isPlaying) {
@@ -177,7 +175,6 @@ export default function GlobalPlayer() {
     });
 
     const audioModeSub = DeviceEventEmitter.addListener('toggleAudioMode', async (isAudio) => {
-        // [FIXED] সঠিক সময়টি বের করে সেভ করা হচ্ছে
         if (videoRef.current) {
             const status = await videoRef.current.getStatusAsync();
             if (status && status.isLoaded) {
@@ -188,14 +185,13 @@ export default function GlobalPlayer() {
         setIsAudioMode(isAudio);
         await setBackgroundAudio(isAudio); 
 
-        // separate মোড হলে প্লেয়ার রিস্টার্ট করে পজিশন ঠিক রাখা হবে
         if (streamMode === 'separate') {
             setVideoKey(Date.now().toString()); 
         }
     });
 
     return () => { playSub.remove(); qualitySub.remove(); audioModeSub.remove(); };
-  }, [streamMode]); // [FIXED] currentTime সরানো হয়েছে পারফরম্যান্সের জন্য
+  }, [streamMode]); 
 
   const changeSpeed = async (speed) => {
     setPlaybackSpeed(speed);
@@ -272,7 +268,6 @@ export default function GlobalPlayer() {
   if (playerState === 'hidden') return null;
   const isFull = playerState === 'full';
 
-  // ডাটা সেভ করার লজিক: separate হলে এবং audio mode থাকলে শুধু audioUrl প্লে হবে
   let activeSourceUrl = streamUrl;
   if (isAudioMode && streamMode === 'separate' && audioOnlyUrl) {
       activeSourceUrl = audioOnlyUrl;
@@ -288,7 +283,7 @@ export default function GlobalPlayer() {
                     source={{ uri: activeSourceUrl }} 
                     style={styles.video} 
                     shouldPlay={isPlaying} 
-                    positionMillis={seekPosRef.current} // এখানেই পজিশন পুনরায় স্টার্ট হয়
+                    positionMillis={seekPosRef.current} 
                     isMuted={streamMode === 'separate' && !isAudioMode}
                     onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
                     useNativeControls={false} 
@@ -296,7 +291,15 @@ export default function GlobalPlayer() {
                 />
             )}
 
-            {/* অডিও মোড চললে ভিডিও ঢেকে দেওয়ার জন্য ওভারলে */}
+            {/* [NEW] লিংক দেখানোর ওভারলে */}
+            {isFull && showControls && activeSourceUrl && (
+                <View style={styles.linkOverlayBox}>
+                    <Text style={styles.linkOverlayText} numberOfLines={2}>
+                        {activeSourceUrl}
+                    </Text>
+                </View>
+            )}
+
             {isAudioMode && (
                 <View style={styles.audioModeOverlay}>
                     {videoData?.thumbnail && (
@@ -310,7 +313,6 @@ export default function GlobalPlayer() {
                 </View>
             )}
 
-            {/* Tap Overlay */}
             {isFull && (
                 <View style={styles.doubleTapOverlay}>
                     <TouchableWithoutFeedback onPress={() => handleVideoTap('left')}>
@@ -322,7 +324,6 @@ export default function GlobalPlayer() {
                 </View>
             )}
 
-            {/* Controls */}
             {isFull && showControls && (
                 <>
                     <TouchableOpacity style={styles.backBtn} onPress={() => { 
@@ -418,7 +419,26 @@ const styles = StyleSheet.create({
   videoWrapper: { flex: 1, position: 'relative', justifyContent: 'center' },
   video: { width: '100%', height: '100%' },
 
-  // Audio Mode Overlay Styles
+  // [NEW] লিংক দেখানোর স্টাইল
+  linkOverlayBox: {
+      position: 'absolute',
+      top: 50, 
+      left: 10,
+      right: 10,
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      padding: 6,
+      borderRadius: 6,
+      zIndex: 150,
+      borderWidth: 1,
+      borderColor: '#00BFA5'
+  },
+  linkOverlayText: {
+      color: '#00BFA5', // হ্যাকার গ্রিন টাইপ কালার যাতে চোখে পড়ে
+      fontSize: 10,
+      fontFamily: 'monospace',
+      textAlign: 'left'
+  },
+
   audioModeOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5, backgroundColor: '#111' },
   audioBlurThumb: { position: 'absolute', width: '100%', height: '100%', opacity: 0.6 },
   audioOverlayDarkener: { position: 'absolute', width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)' },
