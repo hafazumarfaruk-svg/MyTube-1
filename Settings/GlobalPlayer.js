@@ -38,7 +38,6 @@ export default function GlobalPlayer() {
   const [isAudioMode, setIsAudioMode] = useState(false);
   const [videoKey, setVideoKey] = useState(Date.now().toString());
 
-  // পারমিশন অ্যালার্টের জন্য স্টেট
   const [fallbackData, setFallbackData] = useState(null); 
 
   const [showSpeedModal, setShowSpeedModal] = useState(false);
@@ -78,15 +77,10 @@ export default function GlobalPlayer() {
 
   const setBackgroundAudio = async (enable) => {
     try {
-        await Audio.setAudioModeAsync({
-            staysActiveInBackground: enable,
-            playsInSilentModeIOS: true,
-            shouldDuckAndroid: true,
-        });
+        await Audio.setAudioModeAsync({ staysActiveInBackground: enable, playsInSilentModeIOS: true, shouldDuckAndroid: true });
     } catch (e) {}
   };
 
-  // ইউজারের অনুমতি পাওয়ার পর ভিডিও প্লে করার ফাংশন
   const applyStreamData = async (json) => {
     setStreamMode(json.streamType || 'combined');
     setStreamUrl(json.url);
@@ -106,7 +100,8 @@ export default function GlobalPlayer() {
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
       const isAuto = targetQuality === 'Auto';
-      const reqQ = isAuto ? 720 : (parseInt(targetQuality.toString().replace(/\D/g, '')) || 720);
+      // 🚨 বাগ ফিক্স: "4320p (8K)" থেকে শুধুমাত্র "4320" আলাদা করা হলো
+      const reqQ = isAuto ? 720 : (parseInt(targetQuality.toString().split('p')[0]) || 720);
       
       const apiUrl = `${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=${reqQ}&action=play`;
       const res = await fetch(apiUrl);
@@ -117,18 +112,17 @@ export default function GlobalPlayer() {
       if (json.success && json.url) {
           const resQ = parseInt(json.quality) || 720;
 
-          // 🚨 কড়া নিয়ম: রিকোয়েস্ট করা কোয়ালিটি না মিললে পারমিশন চাইবে!
-          if (!isAuto && reqQ !== resQ) {
+          // এখন আর বাইপাস হবে না, কারণ পাইথন সত্যি রেজল্যুশন পাঠাচ্ছে
+          if (!isAuto && reqQ > resQ) {
               setFallbackData({
                   reqQ: reqQ,
                   resQ: resQ,
                   data: json,
-                  message: `Requested ${reqQ}p is not available.\nPlay highest available quality (${resQ}p) instead?`
+                  message: `Requested ${reqQ}p is not available for this video.\nPlay highest available quality (${resQ}p) instead?`
               });
-              return; // এখানে ভিডিও প্লে না করে ইউজারের অনুমতির জন্য থেমে যাবে
+              return; 
           }
 
-          // যদি কোয়ালিটি মিলে যায়, তবে সরাসরি প্লে হবে
           await applyStreamData(json);
       }
     } catch(e) { console.log("Connection Error"); }
@@ -163,7 +157,6 @@ export default function GlobalPlayer() {
       });
   }, [isAudioMode]);
 
-  // অডিও মোড টগল লজিক
   const toggleAudioMode = async () => {
       const newMode = !isAudioMode;
       setIsAudioMode(newMode);
@@ -353,7 +346,7 @@ export default function GlobalPlayer() {
                 />
             )}
 
-            {/* 🚨 ইউজারের অনুমতির অ্যালার্ট স্ক্রিন 🚨 */}
+            {/* 🚨 পারমিশন অ্যালার্ট স্ক্রিন */}
             {fallbackData && isFull && (
                 <View style={styles.fallbackOverlay}>
                     <Ionicons name="alert-circle" size={60} color="#FFD700" />
@@ -361,7 +354,7 @@ export default function GlobalPlayer() {
                     <Text style={styles.fallbackText}>{fallbackData.message}</Text>
                     <View style={styles.fallbackBtnRow}>
                         <TouchableOpacity style={styles.fallbackBtn} onPress={() => {
-                            applyStreamData(fallbackData.data); // অনুমতি দিলে প্লে হবে
+                            applyStreamData(fallbackData.data); 
                             setFallbackData(null);
                         }}>
                             <Text style={styles.fallbackBtnText}>OK, Play {fallbackData.resQ}p</Text>
@@ -485,7 +478,6 @@ const styles = StyleSheet.create({
   audioModeOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center', zIndex: 1 },
   audioModeText: { color: '#FFF', fontSize: 18, marginTop: 10, fontWeight: 'bold' },
 
-  // 🚨 ফলব্যাক অ্যালার্টের স্টাইল
   fallbackOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 200 },
   fallbackTitle: { color: '#FFF', fontSize: 20, fontWeight: 'bold', marginTop: 10 },
   fallbackText: { color: '#CCC', fontSize: 15, marginVertical: 15, textAlign: 'center', paddingHorizontal: 20 },
