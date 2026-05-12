@@ -13,7 +13,6 @@
     "react": "19.2.0",
     "react-native": "0.83.6",
     "immer": "^9.0.6",
-    "expo-video": "~16.0.8",
     "zustand": "^4.5.2",
     "@types/react": "~19.2.10",
     "@expo/vector-icons": "^15.0.3",
