@@ -8,7 +8,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "expo": "~55",
+    "expo": "~54.0.33",
     "expo-status-bar": "~55.0.5",
     "react": "19.2.0",
     "react-native": "0.83.6",
@@ -29,7 +29,8 @@
     "expo-media-library": "~18.2.1",
     "expo-file-system": "~55.0.17",
     "expo-notifications": "~0.32.16",
-    "@react-native-community/slider": "^4.5.0"
+    "@react-native-community/slider": "^4.5.0",
+    "expo-video": "~2.0.0"
   },
   "private": true,
   "name": "BioDigital-Player",
