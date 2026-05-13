@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
-    "jsEngine": "jsc",
+    "jsEngine": "hermes",
     "scheme": "biodigital",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -18,7 +18,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.imtiaz.biodigitaltruth",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -42,6 +44,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-system-ui",
       "expo-notifications",
       "expo-media-library",
       "expo-file-system",
