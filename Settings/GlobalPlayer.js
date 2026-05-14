@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -10,10 +10,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
-const { width, height } = Dimensions.get('window');
-const PLAYER_HEIGHT = (width * 9) / 16;
-const MINI_WIDTH = width * 0.45;
-const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
 export default function GlobalPlayer() {
@@ -23,11 +19,17 @@ export default function GlobalPlayer() {
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
   
-  // 🚨 জুম (Pinch-to-Zoom), ডাবল ট্যাপ এবং স্লাইডারের জন্য Ref 🚨
+  // 🚨 ডায়নামিক স্ক্রিন সাইজ (ফুলস্ক্রিন বিশৃঙ্খলা সমাধানের জন্য) 🚨
+  const { width, height } = useWindowDimensions();
+  const PLAYER_HEIGHT = (width * 9) / 16;
+  const MINI_WIDTH = width * 0.45;
+  const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
+  
+  // জুম এবং ট্যাপের জন্য Ref
   const scale = useRef(new Animated.Value(1)).current;
   const baseScaleRef = useRef(1);
   const initialDistanceRef = useRef(null);
-  const isZoomingRef = useRef(false); // জুম ট্র্যাকার
+  const isZoomingRef = useRef(false);
   
   const lastTapRef = useRef({ time: 0, side: '' });
   const tapTimeoutRef = useRef(null);
@@ -201,6 +203,7 @@ export default function GlobalPlayer() {
       triggerControls();
   };
 
+  // 🚨 ফিক্স ১: নিখুঁত ডাবল ট্যাপ লজিক 🚨
   const handleTap = (side) => {
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300; 
@@ -208,45 +211,53 @@ export default function GlobalPlayer() {
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
-          handleSkip(side === 'right' ? 10 : -10); 
+          handleSkip(side === 'right' ? 10 : -10); // ডাবল ট্যাপ স্কিপ
       } else {
           lastTapRef.current = { time: now, side };
           tapTimeoutRef.current = setTimeout(() => {
-              setShowControls(prev => !prev);
+              setShowControls(prev => {
+                  const next = !prev;
+                  if (next) triggerControls();
+                  return next;
+              });
               lastTapRef.current = { time: 0, side: '' };
-              if (!showControls) triggerControls();
           }, DOUBLE_TAP_DELAY);
       }
   };
 
-  // 🚨 আপডেট: ডাবল ট্যাপ এবং জুমের বাগ ১০০% ফিক্স করা হয়েছে 🚨
+  // 🚨 ফিক্স ২: সোয়াইপ এবং জুমকে ট্যাপ থেকে পুরোপুরি আলাদা করা হলো 🚨
   const videoPanResponder = useRef(PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-          isZoomingRef.current = false;
+      onStartShouldSetPanResponder: () => false, // ট্যাপকে ব্লক করবে না
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+          const touches = evt.nativeEvent.touches;
+          if (touches && touches.length >= 2) return true; // জুম হলে ধরবে
+          if (Math.abs(gestureState.dx) > 15 || Math.abs(gestureState.dy) > 15) return true; // সোয়াইপ হলে ধরবে
+          return false;
+      },
+      onPanResponderGrant: (evt) => {
+          const touches = evt.nativeEvent.touches;
+          if (touches && touches.length >= 2) {
+              isZoomingRef.current = true;
+              const dx = touches[0].pageX - touches[1].pageX;
+              const dy = touches[0].pageY - touches[1].pageY;
+              initialDistanceRef.current = Math.sqrt(dx*dx + dy*dy);
+          }
       },
       onPanResponderMove: (evt, gestureState) => {
           const touches = evt.nativeEvent.touches;
-          // যখনই দুই আঙুল স্ক্রিনে থাকবে, জুম শুরু হবে
-          if (touches && touches.length >= 2) {
+          if (touches && touches.length >= 2 && initialDistanceRef.current) {
               isZoomingRef.current = true;
               const dx = touches[0].pageX - touches[1].pageX;
               const dy = touches[0].pageY - touches[1].pageY;
               const currentDistance = Math.sqrt(dx*dx + dy*dy);
 
-              if (!initialDistanceRef.current) {
-                  initialDistanceRef.current = currentDistance;
-              } else {
-                  let newScale = baseScaleRef.current * (currentDistance / initialDistanceRef.current);
-                  if (newScale < 0.2) newScale = 0.2; // ২০% ছোট
-                  if (newScale > 6.0) newScale = 6.0; // ৬০০% বড়
-                  scale.setValue(newScale);
-              }
+              let newScale = baseScaleRef.current * (currentDistance / initialDistanceRef.current);
+              if (newScale < 0.2) newScale = 0.2; 
+              if (newScale > 6.0) newScale = 6.0; 
+              scale.setValue(newScale);
           }
       },
       onPanResponderRelease: (evt, gestureState) => {
-          // যদি জুম করা হয়, তবে রিলিজের পর আর ট্যাপ/সোয়াইপ কাজ করবে না
           if (isZoomingRef.current) {
               baseScaleRef.current = scale._value;
               initialDistanceRef.current = null;
@@ -254,7 +265,6 @@ export default function GlobalPlayer() {
               return;
           }
 
-          // থিয়েটার মোড সোয়াইপ
           if (gestureState.dy > 50 && Math.abs(gestureState.vy) > 0.5) {
               setPlayerState(prev => {
                   if (prev === 'fullscreen') { toggleFullscreen(); return 'mini'; }
@@ -271,13 +281,6 @@ export default function GlobalPlayer() {
                   return prev;
               });
           } 
-          // 🚨 ফিক্স: সিঙ্গেল বা ডাবল ট্যাপের পজিশন নির্ণয় 🚨
-          else if (Math.abs(gestureState.dx) < 15 && Math.abs(gestureState.dy) < 15) {
-              const screenWidth = Dimensions.get('window').width;
-              // x0 হলো একদম প্রথমে আঙুল পড়ার পজিশন (যা রিলিজের পরও মুছে যায় না)
-              const side = gestureState.x0 < (screenWidth / 2) ? 'left' : 'right';
-              handleTap(side);
-          }
       },
       onPanResponderTerminate: () => {
           if (isZoomingRef.current) {
@@ -347,9 +350,9 @@ export default function GlobalPlayer() {
     <Animated.View 
         style={[
             playerState === 'fullscreen' ? styles.fullscreenContainer : 
-            playerState === 'full' ? styles.fullContainer : 
+            playerState === 'full' ? [styles.fullContainer, { height: PLAYER_HEIGHT }] : 
             playerState === 'center' ? styles.centerContainer : 
-            styles.miniContainer, 
+            [styles.miniContainer, { width: MINI_WIDTH, height: MINI_HEIGHT }], 
             playerState === 'mini' && { transform: pan.getTranslateTransform() }
         ]} 
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
@@ -368,8 +371,12 @@ export default function GlobalPlayer() {
           </Animated.View>
         )}
 
+        {/* 🚨 ফিক্স: ট্যাপ লেয়ার এবং সোয়াইপ/জুম লেয়ার আলাদা করা হলো 🚨 */}
         {isInteractiveFull && !fallbackData && (
-            <View style={styles.tapOverlay} {...videoPanResponder.panHandlers} />
+            <View style={styles.tapOverlay} {...videoPanResponder.panHandlers}>
+                <TouchableWithoutFeedback onPress={() => handleTap('left')}><View style={styles.tapHalf} /></TouchableWithoutFeedback>
+                <TouchableWithoutFeedback onPress={() => handleTap('right')}><View style={styles.tapHalf} /></TouchableWithoutFeedback>
+            </View>
         )}
 
         {isInteractiveFull && showControls && !fallbackData && (
@@ -450,16 +457,17 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { ...StyleSheet.absoluteFillObject, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
+  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
+  miniContainer: { position: 'absolute', bottom: 100, right: 20, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%' },
   videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
-  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
   video: { width: '100%', height: '100%' },
   
-  tapOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 5 }, 
+  tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
+  tapHalf: { flex: 1 },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
