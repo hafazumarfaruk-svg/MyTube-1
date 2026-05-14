@@ -10,7 +10,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
-// 🚨 আপনার লজিক অনুযায়ী একদম ফিক্সড সাইজ (Fixed Size) সেট করা হলো 🚨
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
 const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
@@ -47,6 +46,9 @@ export default function GlobalPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(1);
+  
+  // 🚨 আপনার লজিক: ভিডিওকে নতুন করে রিফ্রেশ করার আইন 🚨
+  const [refreshKey, setRefreshKey] = useState(0); 
 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
@@ -108,21 +110,33 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
-  // 🚨 আপনার লজিক: ফুলস্ক্রিন এবং সাধারণ স্ক্রিনের মাঝে সংযোগ বিচ্ছিন্ন 🚨
+  // 🚨 ফুলস্ক্রিন থেকে ফেরার সময় "নতুন ভিডিওর আইন" প্রয়োগ 🚨
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
+            // ১. স্ক্রিন সোজা হওয়ার নির্দেশ
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             setIsFullscreen(false);
-            setPlayerState('full'); // সরাসরি পুরনো ফিক্সড স্টেটে পাঠানো হলো
-            scale.setValue(1); // জুম রিসেট
+            setPlayerState('full'); 
+            scale.setValue(1); 
             baseScaleRef.current = 1;
+            
+            // ২. ফোনটি সোজা হওয়ার জন্য ২০০ মিলি-সেকেন্ড সময় দেওয়া হলো
+            // ৩. তারপর নতুন ভিডিওর মতো প্লেয়ারটিকে রিফ্রেশ করা হলো
+            setTimeout(() => {
+                setRefreshKey(prev => prev + 1); 
+            }, 200);
+
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
             setIsFullscreen(true);
             setPlayerState('fullscreen');
-            scale.setValue(1); // জুম রিসেট
+            scale.setValue(1); 
             baseScaleRef.current = 1;
+            
+            setTimeout(() => {
+                setRefreshKey(prev => prev + 1);
+            }, 200);
         }
     } catch (error) { console.log(error); }
   };
@@ -156,6 +170,7 @@ export default function GlobalPlayer() {
       
       scale.setValue(1);
       baseScaleRef.current = 1;
+      setRefreshKey(prev => prev + 1); // নতুন ভিডিওর আইন
       triggerControls();
 
       await syncAudioRef.current.unloadAsync().catch(()=>{});
@@ -290,7 +305,6 @@ export default function GlobalPlayer() {
               });
           } 
           else if (Math.abs(gestureState.dx) < 15 && Math.abs(gestureState.dy) < 15) {
-              // স্ক্রিনের মাঝখান বরাবর ট্যাপ চেক করা
               const side = gestureState.x0 < (PORTRAIT_WIDTH / 2) ? 'left' : 'right';
               handleTap(side);
           }
@@ -372,8 +386,9 @@ export default function GlobalPlayer() {
     >
       <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
+        {/* 🚨 এখানে key হিসেবে refreshKey দেওয়া হলো যাতে ফুলস্ক্রিন থেকে ফেরার সময় এটি রিফ্রেশ হয় 🚨 */}
         {streamUrl && !fallbackData && !isAudioMode && (
-          <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
+          <Animated.View key={refreshKey} style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
               <VideoView 
                 ref={videoViewRef} 
                 player={player} 
@@ -469,7 +484,6 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  // 🚨 আপনার লজিক: ফিক্সড সাইজ কন্টেইনার 🚨
   fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
