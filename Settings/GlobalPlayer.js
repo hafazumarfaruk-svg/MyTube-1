@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
-import * as ScreenOrientation from 'expo-screen-orientation'; // 🚨 নতুন ফুলস্ক্রিন প্যাকেজ 🚨
+import * as ScreenOrientation from 'expo-screen-orientation'; 
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
@@ -23,12 +23,17 @@ export default function GlobalPlayer() {
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
   
+  // 🚨 জুম (Pinch-to-Zoom), ডাবল ট্যাপ এবং স্লাইডারের জন্য Ref 🚨
+  const scale = useRef(new Animated.Value(1)).current;
+  const baseScaleRef = useRef(1);
+  const initialDistanceRef = useRef(null);
+  
   const lastTapRef = useRef({ time: 0, side: '' });
   const tapTimeoutRef = useRef(null);
   const isSlidingRef = useRef(false); 
 
   const [playerState, setPlayerState] = useState('hidden'); 
-  const [isFullscreen, setIsFullscreen] = useState(false); // ফুলস্ক্রিন ট্র্যাকার
+  const [isFullscreen, setIsFullscreen] = useState(false); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
   const [streamMode, setStreamMode] = useState('combined');
@@ -54,7 +59,6 @@ export default function GlobalPlayer() {
     controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
   };
 
-  // অন্য স্ক্রিনে গেলে অটো মিনিমাইজ
   useEffect(() => {
     const unsubscribe = navigation.addListener('state', (e) => {
       if (!e.data.state) return;
@@ -64,7 +68,7 @@ export default function GlobalPlayer() {
       if (currentRoute !== 'Player' && currentRoute !== 'PlayerScreen') {
           setPlayerState((prev) => {
               if (prev === 'full' || prev === 'center' || prev === 'fullscreen') {
-                  if (isFullscreen) toggleFullscreen(); // ল্যান্ডস্কেপ থাকলে সোজা করবে
+                  if (isFullscreen) toggleFullscreen(); 
                   return 'mini';
               }
               return prev;
@@ -74,11 +78,10 @@ export default function GlobalPlayer() {
     return unsubscribe;
   }, [navigation, isFullscreen]);
 
-  // 🚨 ফিক্স ৩: হার্ডওয়্যার ব্যাক বাটন লজিক 🚨
   useEffect(() => {
     const backAction = () => {
       if (playerState === 'fullscreen') {
-        toggleFullscreen(); // ফুলস্ক্রিন থেকে ছোট করবে
+        toggleFullscreen(); 
         return true;
       } else if (playerState === 'center' || playerState === 'full') {
         setPlayerState('mini');
@@ -92,7 +95,12 @@ export default function GlobalPlayer() {
     return () => backHandler.remove();
   }, [playerState, navigation, isFullscreen]);
 
-  // 🚨 ফিক্স ৫: কাস্টম ফুলস্ক্রিন লজিক (অডিও ঠিক রাখবে) 🚨
+  // প্লেয়ার স্টেট পরিবর্তন হলে জুম রিসেট করে স্বাভাবিক করা
+  useEffect(() => {
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+      baseScaleRef.current = 1;
+  }, [playerState]);
+
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
@@ -104,9 +112,7 @@ export default function GlobalPlayer() {
             setIsFullscreen(true);
             setPlayerState('fullscreen');
         }
-    } catch (error) {
-        console.log("Orientation Error: ", error);
-    }
+    } catch (error) { console.log(error); }
   };
 
   const syncAudioWithVideo = async (targetPositionSeconds) => {
@@ -121,7 +127,6 @@ export default function GlobalPlayer() {
 
   useEffect(() => {
     const playSub = DeviceEventEmitter.addListener('playVideo', async (data) => {
-      // 🚨 ফিক্স ১: ভিডিও আগে থেকেই চললে রিলোড হবে না 🚨
       if (currentVideoIdRef.current === data.videoId) {
           setPlayerState('full');
           if (isFullscreen) toggleFullscreen();
@@ -136,6 +141,10 @@ export default function GlobalPlayer() {
       setFallbackData(null);
       setIsAudioMode(false);
       setCurrentTime(0);
+      
+      // নতুন ভিডিও প্লে হলে জুম রিসেট করা
+      scale.setValue(1);
+      baseScaleRef.current = 1;
       triggerControls();
 
       await syncAudioRef.current.unloadAsync().catch(()=>{});
@@ -211,26 +220,71 @@ export default function GlobalPlayer() {
       }
   };
 
-  const verticalPanResponder = useRef(PanResponder.create({
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-          return Math.abs(gestureState.dy) > 30 && Math.abs(gestureState.vy) > 0.5;
+  // 🚨 আপডেট: জুম, ট্যাপ এবং সোয়াইপের জন্য একটি সুপার PanResponder তৈরি করা হলো 🚨
+  const videoPanResponder = useRef(PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+          const touches = evt.nativeEvent.touches;
+          // দুই আঙুল দিয়ে চাপলে দূরত্ব মাপা শুরু হবে
+          if (touches.length === 2) {
+              const dx = touches[0].pageX - touches[1].pageX;
+              const dy = touches[0].pageY - touches[1].pageY;
+              initialDistanceRef.current = Math.sqrt(dx*dx + dy*dy);
+          }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+          const touches = evt.nativeEvent.touches;
+          // দুই আঙুল নড়াচড়া করলে জুম হবে
+          if (touches.length === 2 && initialDistanceRef.current) {
+              const dx = touches[0].pageX - touches[1].pageX;
+              const dy = touches[0].pageY - touches[1].pageY;
+              const currentDistance = Math.sqrt(dx*dx + dy*dy);
+              let newScale = baseScaleRef.current * (currentDistance / initialDistanceRef.current);
+              
+              if (newScale < 0.2) newScale = 0.2; // সর্বোচ্চ ছোট (২০%)
+              if (newScale > 6.0) newScale = 6.0; // সর্বোচ্চ বড় (৬০০%)
+              
+              scale.setValue(newScale);
+          }
       },
       onPanResponderRelease: (evt, gestureState) => {
-          if (gestureState.dy > 50) {
-              setPlayerState(prev => {
-                  if (prev === 'fullscreen') { toggleFullscreen(); return 'mini'; }
-                  if (prev === 'full') return 'center'; 
-                  if (prev === 'center') {
-                      if (navigation.canGoBack()) navigation.goBack();
-                      return 'mini'; 
+          if (initialDistanceRef.current) {
+              // জুম করা শেষ হলে বর্তমান স্কেল সেভ করা
+              baseScaleRef.current = scale._value;
+              initialDistanceRef.current = null;
+          } else {
+              // এক আঙুলের কাজ (ট্যাপ বা সোয়াইপ)
+              if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+                  // সিঙ্গেল বা ডাবল ট্যাপ
+                  const screenWidth = Dimensions.get('window').width;
+                  const side = evt.nativeEvent.pageX < (screenWidth / 2) ? 'left' : 'right';
+                  handleTap(side);
+              } else {
+                  // থিয়েটার মোড সোয়াইপ (ওপর/নিচে)
+                  if (gestureState.dy > 50 && Math.abs(gestureState.vy) > 0.5) {
+                      setPlayerState(prev => {
+                          if (prev === 'fullscreen') { toggleFullscreen(); return 'mini'; }
+                          if (prev === 'full') return 'center'; 
+                          if (prev === 'center') {
+                              if (navigation.canGoBack()) navigation.goBack();
+                              return 'mini'; 
+                          }
+                          return prev;
+                      });
+                  } else if (gestureState.dy < -50 && Math.abs(gestureState.vy) > 0.5) {
+                      setPlayerState(prev => {
+                          if (prev === 'center') return 'full'; 
+                          return prev;
+                      });
                   }
-                  return prev;
-              });
-          } else if (gestureState.dy < -50) {
-              setPlayerState(prev => {
-                  if (prev === 'center') return 'full'; 
-                  return prev;
-              });
+              }
+          }
+      },
+      onPanResponderTerminate: () => {
+          if (initialDistanceRef.current) {
+              baseScaleRef.current = scale._value;
+              initialDistanceRef.current = null;
           }
       }
   })).current;
@@ -299,32 +353,32 @@ export default function GlobalPlayer() {
             styles.miniContainer, 
             playerState === 'mini' && { transform: pan.getTranslateTransform() }
         ]} 
-        {...(isInteractiveFull ? verticalPanResponder.panHandlers : miniPanResponder.panHandlers)}
+        {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
     >
       <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
+        {/* 🚨 জুম করার জন্য ভিডিওকে Animated.View এর ভেতর রাখা হলো 🚨 */}
         {streamUrl && !fallbackData && !isAudioMode && (
-          <VideoView 
-            ref={videoViewRef} 
-            player={player} 
-            style={styles.video} 
-            contentFit="contain"
-            nativeControls={false} // 🚨 ফিক্স ৪: ডাবল বাটন হাইড করা হলো 🚨
-          />
+          <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
+              <VideoView 
+                ref={videoViewRef} 
+                player={player} 
+                style={styles.video} 
+                contentFit="contain"
+                nativeControls={false} 
+              />
+          </Animated.View>
         )}
 
+        {/* ট্যাপ, সোয়াইপ এবং জুম লেয়ার */}
         {isInteractiveFull && !fallbackData && (
-            <View style={styles.tapOverlay}>
-                <TouchableWithoutFeedback onPress={() => handleTap('left')}><View style={styles.tapHalf} /></TouchableWithoutFeedback>
-                <TouchableWithoutFeedback onPress={() => handleTap('right')}><View style={styles.tapHalf} /></TouchableWithoutFeedback>
-            </View>
+            <View style={styles.tapOverlay} {...videoPanResponder.panHandlers} />
         )}
 
+        {/* কন্ট্রোল বার (এটি জুম হবে না, তাই সুন্দরভাবে কাজ করবে) */}
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.controls} pointerEvents="box-none">
              
-             {/* 🚨 ফিক্স ২: ওপরের বাম দিকের ব্যাক বাটনটি মুছে দেওয়া হয়েছে 🚨 */}
-
              <View style={styles.centerRow} pointerEvents="box-none">
                 <TouchableOpacity onPress={async () => {
                     if (player.playing) {
@@ -399,17 +453,17 @@ export default function GlobalPlayer() {
 }
 
 const styles = StyleSheet.create({
-  fullscreenContainer: { ...StyleSheet.absoluteFillObject, zIndex: 99999, backgroundColor: '#000' }, // 🚨 নতুন ফুলস্ক্রিন স্টাইল 🚨
-  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000' },
-  centerContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  fullscreenContainer: { ...StyleSheet.absoluteFillObject, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
+  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
+  centerContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%' },
   videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
+  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, // 🚨 জুমের জন্য নতুন লেয়ার 🚨
   video: { width: '100%', height: '100%' },
   
-  tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 },
-  tapHalf: { flex: 1 },
+  tapOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 5 }, // 🚨 ট্যাপ এবং জুমের লেয়ার 🚨
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
