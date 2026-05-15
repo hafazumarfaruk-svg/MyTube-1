@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
-// ফিক্সড ডাইমেনশন
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
 const PLAYER_HEIGHT = (PORTRAIT_WIDTH * 9) / 16;
@@ -49,10 +48,16 @@ export default function GlobalPlayer() {
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
   
+  // 🚨 সেটিংস এবং স্পিড মেনুর স্টেট 🚨
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [currentSpeed, setCurrentSpeed] = useState(1.0);
+  
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const player = useVideoPlayer(streamUrl, (p) => {
     p.loop = false;
+    p.playbackRate = currentSpeed; // স্পিড সেট করা
     p.play();
   });
 
@@ -84,20 +89,33 @@ export default function GlobalPlayer() {
     return unsubscribe;
   }, [navigation, isFullscreen]);
 
-  useEffect(() => {
-    const backAction = () => {
+  // 🚨 স্মার্ট ব্যাক নেভিগেশন লজিক 🚨
+  const handleSmartBack = () => {
       if (playerState === 'fullscreen') {
-        toggleFullscreen(); 
-        return true;
+          toggleFullscreen(); 
+          return true;
       } else if (playerState === 'center' || playerState === 'full') {
-        setPlayerState('mini');
-        if (navigation.canGoBack()) navigation.goBack();
-        else navigation.navigate('Home');
-        return true;
+          setPlayerState('mini');
+          
+          // হিস্ট্রি স্ক্যান করে অরিজিনাল স্ক্রিনে পাঠানো
+          const state = navigation.getState();
+          if (state && state.routes) {
+              const routes = state.routes;
+              for (let i = routes.length - 1; i >= 0; i--) {
+                  if (routes[i].name !== 'Player' && routes[i].name !== 'PlayerScreen') {
+                      navigation.navigate(routes[i].name);
+                      return true;
+                  }
+              }
+          }
+          navigation.navigate('Home'); // কিছু না পেলে হোমে যাবে
+          return true;
       }
       return false;
-    };
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+  };
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleSmartBack);
     return () => backHandler.remove();
   }, [playerState, navigation, isFullscreen]);
 
@@ -106,13 +124,12 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
-  // 🚨 আপনার লজিক: কোনো রিলোড বা জটিলতা ছাড়া সাধারণ স্ক্রিনে ফেরা 🚨
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             setIsFullscreen(false);
-            setPlayerState('full'); // সাধারণ স্ক্রিনে ফিরে যাবে
+            setPlayerState('full'); 
             scale.setValue(1); 
             baseScaleRef.current = 1;
         } else {
@@ -122,7 +139,7 @@ export default function GlobalPlayer() {
             scale.setValue(1); 
             baseScaleRef.current = 1;
         }
-    } catch (error) { console.log(error); }
+    } catch (error) {}
   };
 
   const syncAudioWithVideo = async (targetPositionSeconds) => {
@@ -196,11 +213,15 @@ export default function GlobalPlayer() {
     if (json.audioUrl) {
         await syncAudioRef.current.unloadAsync().catch(()=>{});
         syncAudioRef.current = new Audio.Sound();
-        await syncAudioRef.current.loadAsync({ uri: json.audioUrl }, { shouldPlay: true, volume: 1.0 }).catch(()=>{});
+        await syncAudioRef.current.loadAsync(
+            { uri: json.audioUrl }, 
+            { shouldPlay: true, volume: 1.0, rate: currentSpeed, shouldCorrectPitch: true } // স্পিডসহ অডিও লোড
+        ).catch(()=>{});
     }
   };
 
-  const handleSkip = async (amount) => {
+  // 🚨 সাইলেন্ট স্কিপ লজিক (Controls Show করবে না) 🚨
+  const handleSkip = async (amount, isSilent = false) => {
       let newTime = player.currentTime + amount;
       if (newTime < 0) newTime = 0;
       if (newTime > player.duration) newTime = player.duration;
@@ -208,7 +229,8 @@ export default function GlobalPlayer() {
       player.currentTime = newTime; 
       setCurrentTime(newTime);
       if (streamMode === 'separate') await syncAudioWithVideo(newTime); 
-      triggerControls();
+      
+      if (!isSilent) triggerControls(); // ডাবল ট্যাপ হলে কন্ট্রোলস ট্রিগার হবে না
   };
 
   const handleTap = (side) => {
@@ -218,7 +240,8 @@ export default function GlobalPlayer() {
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
-          handleSkip(side === 'right' ? 10 : -10); 
+          
+          handleSkip(side === 'right' ? 10 : -10, true); // 🚨 true = সাইলেন্ট স্কিপ (কিছু ভাসবে না)
       } else {
           lastTapRef.current = { time: now, side };
           tapTimeoutRef.current = setTimeout(() => {
@@ -230,6 +253,17 @@ export default function GlobalPlayer() {
               lastTapRef.current = { time: 0, side: '' };
           }, DOUBLE_TAP_DELAY);
       }
+  };
+
+  // 🚨 স্পিড চেঞ্জ ফাংশন 🚨
+  const changeSpeed = async (speed) => {
+      setCurrentSpeed(speed);
+      if (player) player.playbackRate = speed;
+      if (syncAudioRef.current) {
+          await syncAudioRef.current.setRateAsync(speed, true, Audio.PitchCorrectionQuality.High).catch(()=>{});
+      }
+      setShowSpeedMenu(false);
+      setShowSettingsMenu(false);
   };
 
   const videoPanResponder = useRef(PanResponder.create({
@@ -276,7 +310,7 @@ export default function GlobalPlayer() {
                   if (prev === 'fullscreen') { toggleFullscreen(); return 'mini'; }
                   if (prev === 'full') return 'center'; 
                   if (prev === 'center') {
-                      if (navigation.canGoBack()) navigation.goBack();
+                      handleSmartBack(); // সোয়াইপ ডাউনেও স্মার্ট ব্যাক কাজ করবে
                       return 'mini'; 
                   }
                   return prev;
@@ -367,7 +401,7 @@ export default function GlobalPlayer() {
         ]} 
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
     >
-      <View style={styles.videoWrapper}>
+      <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
         {streamUrl && !fallbackData && !isAudioMode && (
           <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
@@ -390,6 +424,16 @@ export default function GlobalPlayer() {
 
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.controls} pointerEvents="box-none">
+             
+             {/* 🚨 ব্যাক বাটন এবং সেটিংস বাটন 🚨 */}
+             <View style={styles.topBar}>
+                 <TouchableOpacity style={styles.iconBtn} onPress={handleSmartBack}>
+                    <Ionicons name="chevron-down" size={35} color="#FFF" />
+                 </TouchableOpacity>
+                 <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsMenu(true)}>
+                    <Ionicons name="settings-outline" size={28} color="#FFF" />
+                 </TouchableOpacity>
+             </View>
              
              <View style={styles.centerRow} pointerEvents="box-none">
                 <TouchableOpacity onPress={async () => {
@@ -437,6 +481,60 @@ export default function GlobalPlayer() {
           </View>
         )}
 
+        {/* 🚨 Settings Menu Modal 🚨 */}
+        <Modal visible={showSettingsMenu} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
+                    <Text style={styles.modalTitle}>Player Settings</Text>
+                    
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setShowSettingsMenu(false);
+                        Linking.openURL(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`);
+                    }}>
+                        <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Open in Browser</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowSpeedMenu(true); }}>
+                        <Ionicons name="speedometer-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setShowSettingsMenu(false);
+                        alert("Saved to Playlist successfully! (Feature coming to Playlist.js)");
+                    }}>
+                        <Ionicons name="add-circle-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Save to Playlist</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setShowSettingsMenu(false);
+                        Share.share({ message: `Watch this awesome video: https://www.youtube.com/watch?v=${currentVideoIdRef.current}` });
+                    }}>
+                        <Ionicons name="share-social-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Share</Text>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
+
+        {/* 🚨 Speed Selection Modal 🚨 */}
+        <Modal visible={showSpeedMenu} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
+                    <Text style={styles.modalTitle}>Select Speed</Text>
+                    {[0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map(s => (
+                        <TouchableOpacity key={s} style={styles.menuItem} onPress={() => changeSpeed(s)}>
+                            <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>
+                                {s === 1.0 ? 'Normal (1.0x)' : `${s}x`}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
+
         {fallbackData && (
           <View style={styles.fallbackOverlay}>
             <Ionicons name="alert-circle" size={50} color="#FFD700" />
@@ -466,21 +564,34 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  // 🚨 ফুলস্ক্রিন থেকে ফেরার সময় সাধারণ স্ক্রিন তার নির্দিষ্ট মাপে (১০০% প্রশস্ত) ফিরে আসবে 🚨
   fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
-  animatedVideoWrapper: { flex: 1, width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
-  video: { flex: 1, width: '100%', height: '100%' },
+  videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
+  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
+  video: { width: '100%', height: '100%' },
   
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  
+  topBar: { position: 'absolute', top: 10, left: 10, right: 15, flexDirection: 'row', justifyContent: 'space-between', zIndex: 20 },
+  iconBtn: { padding: 5 },
+  
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
   timeText: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
+  
+  // 🚨 মডালের স্টাইল 🚨
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 15, padding: 15, elevation: 10 },
+  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' },
+  menuIcon: { marginRight: 10 },
+  menuText: { color: '#FFF', fontSize: 16 },
+
   fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 30 },
   fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 },
   btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
