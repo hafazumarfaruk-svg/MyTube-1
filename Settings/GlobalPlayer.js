@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,7 @@ import * as WebBrowser from 'expo-web-browser';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
+// 🚨 আপনার দেওয়া ফিক্সড ডাইমেনশন (হুবহু) 🚨
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
 const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
@@ -47,11 +48,11 @@ export default function GlobalPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(1);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
   
+  // সেটিংস এবং স্পিড মেনুর স্টেট
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(1.0);
@@ -92,6 +93,7 @@ export default function GlobalPlayer() {
     return unsubscribe;
   }, [navigation, isFullscreen]);
 
+  // স্মার্ট ব্যাক নেভিগেশন (হোম বা যেখান থেকে ঢুকেছে সেখানে যাবে)
   const handleSmartBack = () => {
       if (playerState === 'fullscreen') {
           toggleFullscreen(); 
@@ -125,24 +127,23 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
+  // 🚨 আপনার দেওয়া লজিক: কোনো রিলোড বা জটিলতা ছাড়া সাধারণ স্ক্রিনে ফেরা (হুবহু) 🚨
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             setIsFullscreen(false);
-            setPlayerState('full'); 
+            setPlayerState('full'); // সাধারণ স্ক্রিনে ফিরে যাবে
             scale.setValue(1); 
             baseScaleRef.current = 1;
-            setTimeout(() => setRefreshKey(prev => prev + 1), 200);
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
             setIsFullscreen(true);
             setPlayerState('fullscreen');
             scale.setValue(1); 
             baseScaleRef.current = 1;
-            setTimeout(() => setRefreshKey(prev => prev + 1), 200);
         }
-    } catch (error) {}
+    } catch (error) { console.log(error); }
   };
 
   const syncAudioWithVideo = async (targetPositionSeconds) => {
@@ -174,7 +175,6 @@ export default function GlobalPlayer() {
       
       scale.setValue(1);
       baseScaleRef.current = 1;
-      setRefreshKey(prev => prev + 1); 
       triggerControls();
 
       await syncAudioRef.current.unloadAsync().catch(()=>{});
@@ -217,13 +217,15 @@ export default function GlobalPlayer() {
     if (json.audioUrl) {
         await syncAudioRef.current.unloadAsync().catch(()=>{});
         syncAudioRef.current = new Audio.Sound();
+        // 🚨 স্পিডের জন্য অডিও কোয়ালিটি Low রাখা হলো যাতে না কাঁপে
         await syncAudioRef.current.loadAsync(
             { uri: json.audioUrl }, 
-            { shouldPlay: true, volume: 1.0, rate: currentSpeed, shouldCorrectPitch: true, pitchCorrectionQuality: Audio.PitchCorrectionQuality.Low } 
+            { shouldPlay: true, volume: 1.0, rate: currentSpeed, shouldCorrectPitch: true, pitchCorrectionQuality: Audio.PitchCorrectionQuality.Low }
         ).catch(()=>{});
     }
   };
 
+  // 🚨 সাইলেন্ট স্কিপ (ডাবল ট্যাপে কিছু ভাসবে না)
   const handleSkip = async (amount, isSilent = false) => {
       let newTime = player.currentTime + amount;
       if (newTime < 0) newTime = 0;
@@ -243,7 +245,8 @@ export default function GlobalPlayer() {
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
-          handleSkip(side === 'right' ? 10 : -10, true); 
+          
+          handleSkip(side === 'right' ? 10 : -10, true); // true = সাইলেন্ট স্কিপ
       } else {
           lastTapRef.current = { time: now, side };
           tapTimeoutRef.current = setTimeout(() => {
@@ -257,6 +260,7 @@ export default function GlobalPlayer() {
       }
   };
 
+  // 🚨 স্পিড চেঞ্জ ফাংশন (৩.০x পর্যন্ত)
   const changeSpeed = async (speed) => {
       setCurrentSpeed(speed);
       if (player) player.playbackRate = speed;
@@ -405,7 +409,7 @@ export default function GlobalPlayer() {
       <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
         {streamUrl && !fallbackData && !isAudioMode && (
-          <Animated.View key={refreshKey} style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
+          <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
               <VideoView 
                 ref={videoViewRef} 
                 player={player} 
@@ -426,6 +430,7 @@ export default function GlobalPlayer() {
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.controls} pointerEvents="box-none">
              
+             {/* 🚨 ব্যাক এবং সেটিংস মেনু 🚨 */}
              <View style={styles.topBar}>
                  <TouchableOpacity style={styles.iconBtn} onPress={handleSmartBack}>
                     <Ionicons name="chevron-down" size={35} color="#FFF" />
@@ -487,14 +492,15 @@ export default function GlobalPlayer() {
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
                     
-                    {/* 🚨 ইউটিউব অ্যাপ বাইপাস ট্রিক 🚨 */}
+                    {/* 🚨 ব্রাউজার ওপেন লজিক (ইউটিউব অ্যাপ বাইপাস) 🚨 */}
                     <TouchableOpacity style={styles.menuItem} onPress={async () => {
                         setShowSettingsMenu(false);
-                        // "?app=desktop" প্যারামিটার দিয়ে অ্যান্ড্রয়েডের ডিপ-লিংক বাইপাস করা হলো
-                        const bypassUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`;
+                        const ytUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`;
                         
-                        await WebBrowser.openBrowserAsync(bypassUrl, {
-                            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+                        Linking.openURL(`googlechrome://navigate?url=${ytUrl}`).catch(() => {
+                            WebBrowser.openBrowserAsync(ytUrl, {
+                                presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+                            });
                         });
                     }}>
                         <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
@@ -570,8 +576,9 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
-  centerContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  // 🚨 আপনার দেওয়া ফিক্সড স্টাইল 🚨
+  fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
+  centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
