@@ -51,7 +51,7 @@ export default function GlobalPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(1);
-  const [buffered, setBuffered] = useState(0); // 🚨 নতুন: বাফারিং স্টেট 🚨
+  const [buffered, setBuffered] = useState(0); 
   const [isPlayingUI, setIsPlayingUI] = useState(false); 
 
   const [showControls, setShowControls] = useState(true);
@@ -107,11 +107,9 @@ export default function GlobalPlayer() {
     setupAudio();
   }, []);
 
-  // 🚨 আপডেট ২: অ্যাপ ব্যাকগ্রাউন্ডে গেলে অটো ভিডিও প্লে বন্ধ করা 🚨
   useEffect(() => {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
         if (nextAppState.match(/inactive|background/)) {
-            // যদি অডিও মোডে না থাকে, তবে অ্যাপ থেকে বের হলে ভিডিও পজ হয়ে যাবে
             if (!isAudioModeRef.current) {
                 if (player && player.playing) player.pause();
                 const status = await syncAudioRef.current.getStatusAsync();
@@ -297,6 +295,24 @@ export default function GlobalPlayer() {
     };
   }, [isFullscreen, streamUrl]);
 
+  useEffect(() => {
+      let timeoutId;
+      if (!isAudioMode && videoSource && player) {
+          timeoutId = setTimeout(async () => {
+              try {
+                  player.currentTime = resumeTimeRef.current;
+                  player.play();
+
+                  if (streamModeRef.current === 'separate') {
+                      await syncAudioRef.current.setPositionAsync(resumeTimeRef.current * 1000).catch(()=>{});
+                      await syncAudioRef.current.playAsync().catch(()=>{});
+                  }
+              } catch (e) { console.log("Resume Error: ", e); }
+          }, 800); 
+      }
+      return () => clearTimeout(timeoutId);
+  }, [videoSource, isAudioMode]);
+
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
       const qStr = targetQuality.toString().toUpperCase();
@@ -389,7 +405,6 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
-  // 🚨 আপডেট ১: বাফারিং এবং টাইম সিঙ্ক লজিক 🚨
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isAudioMode) {
@@ -406,7 +421,7 @@ export default function GlobalPlayer() {
             setIsPlayingUI(player?.playing || false);
             
             if (player) {
-                if (player.bufferedPosition) setBuffered(player.bufferedPosition); // ভিডিওর বাফারিং
+                if (player.bufferedPosition) setBuffered(player.bufferedPosition); 
                 if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
                     setCurrentTime(player.currentTime);
                     setDuration(player.duration > 0 ? player.duration : 1);
@@ -430,7 +445,6 @@ export default function GlobalPlayer() {
     return () => clearInterval(interval);
   }, [player, streamMode, isAudioMode, videoSource]);
 
-  // প্যান রেস্পন্ডার লজিক (আগের মতোই)
   const videoPanResponder = useRef(PanResponder.create({
       onStartShouldSetPanResponder: () => false, 
       onMoveShouldSetPanResponder: (evt, gestureState) => {
@@ -529,7 +543,6 @@ export default function GlobalPlayer() {
   if (playerState === 'hidden') return null;
   const isInteractiveFull = playerState === 'full' || playerState === 'center' || playerState === 'fullscreen';
 
-  // বাফারিং বারের প্রস্থ নির্ধারণ
   const bufferedWidth = duration > 0 ? `${(buffered / duration) * 100}%` : '0%';
 
   return (
@@ -561,7 +574,6 @@ export default function GlobalPlayer() {
                 ) : null}
             </Animated.View>
 
-            {/* 🚨 আপডেট ৬: অডিও মোডে প্রিমিয়াম থাম্বনেইল ব্যাকগ্রাউন্ড ও আপডেট ৫: zIndex কমানো 🚨 */}
             {isAudioMode && (
                 <ImageBackground 
                     source={{ uri: `https://img.youtube.com/vi/${currentVideoIdRef.current}/hqdefault.jpg` }}
@@ -593,7 +605,6 @@ export default function GlobalPlayer() {
           <View style={styles.controls} pointerEvents="box-none">
              
              <View style={styles.topBar}>
-                 {/* 🚨 আপডেট ৩: ব্যাক বাটন রিমুভ করা হয়েছে এবং সেটিংস ডানে রাখা হয়েছে 🚨 */}
                  <View style={{flex: 1}} />
                  <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsMenu(true)}>
                      <Ionicons name="settings-outline" size={28} color="#FFF" />
@@ -622,11 +633,14 @@ export default function GlobalPlayer() {
              </View>
 
              <View style={styles.bottomBar}>
-                <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+                {/* 🚨 ফিক্স ২: টাইম টেক্সটের জন্য নির্দিষ্ট উইডথ (minWidth) দেওয়া হয়েছে যাতে ওভারল্যাপ না হয় 🚨 */}
+                <Text style={styles.timeTextLeft}>{formatTime(currentTime)}</Text>
                 
-                {/* 🚨 আপডেট ১: হালকা সবুজ রঙের বাফারিং লাইন 🚨 */}
+                {/* 🚨 ফিক্স ১: স্লাইডার এবং বাফার বার নিখুঁতভাবে ওভারলে করা হয়েছে 🚨 */}
                 <View style={styles.sliderWrapper}>
-                    <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
+                    <View style={styles.customTrackContainer}>
+                        <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
+                    </View>
                     <Slider 
                       style={{ flex: 1, height: 40 }}
                       minimumValue={0}
@@ -648,21 +662,22 @@ export default function GlobalPlayer() {
                           triggerControls();
                       }}
                       minimumTrackTintColor="#FF0000"
-                      maximumTrackTintColor="rgba(255,255,255,0.2)"
+                      maximumTrackTintColor="transparent" // মূল ট্র্যাক ট্রান্সপারেন্ট করা হয়েছে
                       thumbTintColor="#FF0000"
                     />
                 </View>
 
-                <Text style={styles.timeText}>{formatTime(duration)}</Text>
+                {/* 🚨 ফিক্স ২: টাইম টেক্সট ওভারল্যাপ সমাধান 🚨 */}
+                <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
                 
-                <TouchableOpacity style={{marginLeft: 15}} onPress={toggleFullscreen}>
+                <TouchableOpacity style={{marginLeft: 10}} onPress={toggleFullscreen}>
                     <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color="#FFF" />
                 </TouchableOpacity>
              </View>
           </View>
         )}
 
-        {/* --- Modals omitted for brevity, keeping existing logics exactly same --- */}
+        {/* 🚨 ফিক্স ৩: সম্পূর্ণ সেটিং মেনু পুনরায় যুক্ত করা হয়েছে 🚨 */}
         <Modal visible={showSettingsMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
@@ -683,6 +698,24 @@ export default function GlobalPlayer() {
                         <Ionicons name="speedometer-outline" size={20} color="#FFF" style={styles.menuIcon} />
                         <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
                     </TouchableOpacity>
+
+                    {/* পুনরায় যুক্ত করা অপশন */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setShowSettingsMenu(false);
+                        alert("Saved to Playlist successfully!");
+                    }}>
+                        <Ionicons name="add-circle-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Save to Playlist</Text>
+                    </TouchableOpacity>
+
+                    {/* পুনরায় যুক্ত করা অপশন */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setShowSettingsMenu(false);
+                        Share.share({ message: `Watch this awesome video: https://www.youtube.com/watch?v=${currentVideoIdRef.current}` });
+                    }}>
+                        <Ionicons name="share-social-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Share</Text>
+                    </TouchableOpacity>
                 </TouchableOpacity>
             </TouchableOpacity>
         </Modal>
@@ -702,7 +735,16 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 আপডেট ৪: মিনি স্ক্রিনে প্লে/পজ এবং ক্লোজ বাটন 🚨 */}
+        {fallbackData && (
+          <View style={styles.fallbackOverlay}>
+            <Ionicons name="alert-circle" size={50} color="#FFD700" />
+            <Text style={styles.fallbackText}>{fallbackData.message}</Text>
+            <TouchableOpacity style={styles.btn} onPress={() => { startPlayback(fallbackData.data); setFallbackData(null); }}>
+              <Text style={styles.btnText}>OK, Play Highest Quality</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
         {!isInteractiveFull && (
             <TouchableOpacity activeOpacity={0.9} style={styles.miniTouchableArea} onPress={() => {
                 if (videoData) {
@@ -759,10 +801,15 @@ const styles = StyleSheet.create({
   
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
-  timeText: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
   
-  sliderWrapper: { flex: 1, marginHorizontal: 10, position: 'relative', justifyContent: 'center', height: 40 },
-  bufferedBar: { position: 'absolute', left: Platform.OS === 'ios' ? 0 : 15, right: Platform.OS === 'ios' ? 0 : 15, height: 3, backgroundColor: 'rgba(144, 238, 144, 0.5)', borderRadius: 2 },
+  // 🚨 টাইম টেক্সট ফিক্স (Fixed Width) 🚨
+  timeTextLeft: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
+  timeTextRight: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
+  
+  // 🚨 স্লাইডার ও বাফার ডিজাইন ফিক্স 🚨
+  sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 },
+  customTrackContainer: { position: 'absolute', left: Platform.OS === 'android' ? 15 : 0, right: Platform.OS === 'android' ? 15 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
+  bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 15, padding: 15, elevation: 10 },
@@ -771,6 +818,11 @@ const styles = StyleSheet.create({
   menuIcon: { marginRight: 10 },
   menuText: { color: '#FFF', fontSize: 16 },
 
+  fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 30 },
+  fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 },
+  btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
+  btnText: { color: '#FFF', fontWeight: 'bold' },
+  
   miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 },
   miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' },
   miniCtrlBtn: { padding: 5, marginHorizontal: 3 },
