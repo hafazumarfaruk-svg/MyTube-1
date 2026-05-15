@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -487,13 +487,14 @@ export default function GlobalPlayer() {
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
                     
-                    {/* 🚨 নিউ পাইপ লজিক: ডিপ লিংকিং বাইপাস করে ব্রাউজার খোলা 🚨 */}
-                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                    {/* 🚨 ইউটিউব অ্যাপ বাইপাস ট্রিক 🚨 */}
+                    <TouchableOpacity style={styles.menuItem} onPress={async () => {
                         setShowSettingsMenu(false);
-                        const ytUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}`;
-                        // ক্রোমকে ফোর্স করার চেষ্টা করবে, না পারলে সাধারণ ব্রাউজারে খুলবে (ইউটিউব অ্যাপে যাবে না)
-                        Linking.openURL(`googlechrome://navigate?url=${ytUrl}`).catch(() => {
-                            WebBrowser.openBrowserAsync(ytUrl);
+                        // "?app=desktop" প্যারামিটার দিয়ে অ্যান্ড্রয়েডের ডিপ-লিংক বাইপাস করা হলো
+                        const bypassUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`;
+                        
+                        await WebBrowser.openBrowserAsync(bypassUrl, {
+                            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
                         });
                     }}>
                         <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
