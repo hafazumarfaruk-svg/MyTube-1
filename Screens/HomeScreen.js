@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import * as NavigationBar from 'expo-navigation-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import SettingsScreen from '../Settings/SettingsScreen';
 import ShortsScreen from './ShortsScreen'; 
-import LiveScreen from './livescreen';
+import LiveScreen from './livescreen'; // [NEW]: লাইভ স্ক্রিন ফাইল ইমপোর্ট করা হলো
 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const FEED_TOPICS = [ "trending bangladesh", "bangla natok 2026", "bangla new song", "somoy tv live", "cricket highlights", "bangla waz short", "bengali vlog", "bangla news today" ];
@@ -16,13 +15,11 @@ const FEED_TOPICS = [ "trending bangladesh", "bangla natok 2026", "bangla new so
 global.aiMemory = global.aiMemory || {};
 global.seenVideoIds = global.seenVideoIds || new Set(); 
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ route }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-  const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme(); // সিস্টেম থিম ডিটেক্ট করার জন্য
 
   const [activeTab, setActiveTab] = useState('Home');
   const [videos, setVideos] = useState([]);
@@ -35,13 +32,6 @@ export default function HomeScreen({ route }) {
   const [subscribedChannels, setSubscribedChannels] = useState([]);
   const [thumbQuality, setThumbQuality] = useState('High');
   const [activeQuery, setActiveQuery] = useState('');
-
-  const isDarkMode = colorScheme === 'dark';
-  const backgroundColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const surfaceColor = isDarkMode ? '#0F0F0F' : '#F5F5F5';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const secondaryTextColor = isDarkMode ? '#AAAAAA' : '#555555';
-  const borderColor = isDarkMode ? '#222222' : '#DDDDDD';
 
   const getAlgorithmicTopic = async () => {
     try {
@@ -69,21 +59,8 @@ export default function HomeScreen({ route }) {
         if (!activeQuery) setActiveQuery(await getAlgorithmicTopic());
       } catch (e) {}
     };
-
-    if (isFocused) {
-      loadGlobalData();
-      
-      // ডায়নামিক নেভিগেশন বার কনফিগারেশন
-      if (Platform.OS === 'android') {
-        const navBarBgColor = isDarkMode ? "#000000" : "#FFFFFF";
-        const navBarBtnStyle = isDarkMode ? "light" : "dark";
-        
-        NavigationBar.setVisibilityAsync("visible");
-        NavigationBar.setBackgroundColorAsync(navBarBgColor); 
-        NavigationBar.setButtonStyleAsync(navBarBtnStyle);
-      }
-    }
-  }, [isFocused, colorScheme]);
+    if (isFocused) loadGlobalData();
+  }, [isFocused]);
 
   useEffect(() => {
     if (route?.params?.executeSearch) {
@@ -94,6 +71,7 @@ export default function HomeScreen({ route }) {
 
   useEffect(() => {
     if (activeQuery) fetchRealVideos(activeQuery, true);
+    if (Platform.OS === 'android') NavigationBar.setVisibilityAsync("hidden");
   }, [activeQuery]);
 
   const handleRefresh = async () => {
@@ -173,8 +151,8 @@ export default function HomeScreen({ route }) {
         <View style={styles.videoInfo}>
           <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
           <View style={styles.textContainer}>
-            <Text style={[styles.title, { color: textColor }]} numberOfLines={2}>{item.title}</Text>
-            <Text style={[styles.meta, { color: secondaryTextColor }]}>{item.channel} • {item.views}</Text>
+            <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+            <Text style={styles.meta}>{item.channel} • {item.views}</Text>
           </View>
         </View>
       </View>
@@ -182,30 +160,31 @@ export default function HomeScreen({ route }) {
   };
 
   const MeMenuItem = ({ icon, text, onPress }) => (
-    <TouchableOpacity style={[styles.meMenuItem, { borderBottomColor: borderColor }]} onPress={onPress}>
+    <TouchableOpacity style={styles.meMenuItem} onPress={onPress}>
       <Ionicons name={icon} size={24} color="#00BFA5" style={styles.meMenuIcon} />
-      <Text style={[styles.meMenuText, { color: textColor }]}>{text}</Text>
+      <Text style={styles.meMenuText}>{text}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: backgroundColor, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <StatusBar backgroundColor="transparent" barStyle={isDarkMode ? "light-content" : "dark-content"} translucent={true} />
+    <SafeAreaView style={styles.container}>
+      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
 
-      {activeTab !== 'Shorts' && activeTab !== 'Live' && activeTab !== 'ME' && activeTab !== 'Settings' && (
-        <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomColor: borderColor }]}>
+      {activeTab !== 'Shorts' && activeTab !== 'ME' && activeTab !== 'Settings' && (
+        <View style={styles.header}>
           <View style={styles.logoContainer}>
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-             <Text style={[styles.logoText, { color: textColor }]}>MyTube</Text>
+             <Text style={styles.logoText}>MyTube</Text>
           </View>
-          <TouchableOpacity style={[styles.searchBar, { backgroundColor: isDarkMode ? '#222' : '#E0E0E0' }]} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-            <Text style={{ flex: 1, color: secondaryTextColor, fontSize: 14 }}>{searchQuery || "সার্চ..."}</Text>
-            <Ionicons name="search" size={18} color={secondaryTextColor} />
+          {/* [FIXED]: এখানে 'Search' এর পরিবর্তে 'SearchSettings' দেওয়া হয়েছে */}
+          <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
+            <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>{searchQuery || "সার্চ..."}</Text>
+            <Ionicons name="search" size={18} color="#AAA" />
           </TouchableOpacity>
         </View>
       )}
 
-      <View style={[styles.mainContent, { backgroundColor: surfaceColor }]}>
+      <View style={styles.mainContent}>
         {activeTab === 'Home' ? (
           loading && videos.length === 0 ? ( 
             <ActivityIndicator size="large" color="#FF0000" style={{ flex: 1, justifyContent: 'center' }} /> 
@@ -227,11 +206,11 @@ export default function HomeScreen({ route }) {
         ) : activeTab === 'Settings' ? (
           <SettingsScreen />
         ) : activeTab === 'ME' ? (
-          <View style={[styles.meContainer, { backgroundColor: surfaceColor }]}>
+          <View style={styles.meContainer}>
              <View style={styles.meHeaderProfile}>
-                 <Ionicons name="person-circle" size={80} color={secondaryTextColor} />
-                 <Text style={[styles.meName, { color: textColor }]}>MyTube User</Text>
-                 <Text style={[styles.meEmail, { color: secondaryTextColor }]}>Manage your account</Text>
+                 <Ionicons name="person-circle" size={80} color="#555" />
+                 <Text style={styles.meName}>MyTube User</Text>
+                 <Text style={styles.meEmail}>Manage your account</Text>
              </View>
              <View style={styles.meMenuWrapper}>
                  <MeMenuItem icon="time-outline" text="HISTORY" onPress={() => navigation.navigate('History')} />
@@ -244,38 +223,38 @@ export default function HomeScreen({ route }) {
         ) : null}
       </View>
 
-      <View style={[styles.tabBar, { backgroundColor: surfaceColor, borderTopColor: borderColor }]}>
+      <View style={styles.tabBar}>
         <TouchableOpacity onPress={async () => { setActiveTab('Home'); setActiveQuery(await getAlgorithmicTopic()); }} style={styles.tab}>
-           <Ionicons name={activeTab==='Home'?'home':'home-outline'} size={24} color={activeTab==='Home'?textColor:secondaryTextColor} />
-           <Text style={[styles.tabText, activeTab==='Home' && {color:textColor}]}>Home</Text>
+           <Ionicons name={activeTab==='Home'?'home':'home-outline'} size={24} color={activeTab==='Home'?'#FFF':'#888'} />
+           <Text style={[styles.tabText, activeTab==='Home' && {color:'#FFF'}]}>Home</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('Shorts')} style={styles.tab}>
-           <Ionicons name={activeTab==='Shorts'?'play-circle':'play-circle-outline'} size={24} color={activeTab==='Shorts'?textColor:secondaryTextColor} />
-           <Text style={[styles.tabText, activeTab==='Shorts' && {color:textColor}]}>Shorts</Text>
+           <Ionicons name={activeTab==='Shorts'?'play-circle':'play-circle-outline'} size={24} color={activeTab==='Shorts'?'#FFF':'#888'} />
+           <Text style={[styles.tabText, activeTab==='Shorts' && {color:'#FFF'}]}>Shorts</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('Live')} style={styles.tab}>
-           <Ionicons name={activeTab==='Live'?'radio':'radio-outline'} size={24} color={activeTab==='Live'?'#FF0000':secondaryTextColor} />
+           <Ionicons name={activeTab==='Live'?'radio':'radio-outline'} size={24} color={activeTab==='Live'?'#FF0000':'#888'} />
            <Text style={[styles.tabText, activeTab==='Live' && {color:'#FF0000'}]}>Live</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('ME')} style={styles.tab}>
-           <Ionicons name={(activeTab==='ME' || activeTab==='Settings') ? 'person' : 'person-outline'} size={24} color={(activeTab==='ME' || activeTab==='Settings') ? textColor : secondaryTextColor} />
-           <Text style={[styles.tabText, (activeTab==='ME' || activeTab==='Settings') && {color:textColor}]}>ME</Text>
+           <Ionicons name={(activeTab==='ME' || activeTab==='Settings') ? 'person' : 'person-outline'} size={24} color={(activeTab==='ME' || activeTab==='Settings') ? '#FFF' : '#888'} />
+           <Text style={[styles.tabText, (activeTab==='ME' || activeTab==='Settings') && {color:'#FFF'}]}>ME</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, width: '100%' },
+  container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
-  logoText: { fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-  searchBar: { flex: 1, flexDirection: 'row', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
-  mainContent: { flex: 1 },
+  logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+  searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+  mainContent: { flex: 1, backgroundColor: '#0F0F0F' },
   videoCard: { marginBottom: 15 },
   thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
   durationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0, 0, 0, 0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
@@ -283,17 +262,17 @@ const styles = StyleSheet.create({
   videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'center' },
   channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: '#333' },
   textContainer: { flex: 1, paddingRight: 10 },
-  title: { fontSize: 14, fontWeight: '500' },
-  meta: { fontSize: 12, marginTop: 4 },
-  tabBar: { flexDirection: 'row', height: 60, borderTopWidth: 1 },
+  title: { color: '#FFF', fontSize: 14, fontWeight: '500' },
+  meta: { color: '#AAA', fontSize: 12, marginTop: 4 },
+  tabBar: { flexDirection: 'row', height: 60, borderTopWidth: 1, borderTopColor: '#222', backgroundColor: '#0F0F0F' },
   tab: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  tabText: { fontSize: 10, marginTop: 4 },
-  meContainer: { flex: 1 },
+  tabText: { fontSize: 10, color: '#888', marginTop: 4 },
+  meContainer: { flex: 1, backgroundColor: '#0F0F0F' },
   meHeaderProfile: { alignItems: 'center', marginTop: 40, marginBottom: 30 },
-  meName: { fontSize: 20, fontWeight: 'bold', marginTop: 10 },
-  meEmail: { fontSize: 14, marginTop: 4 },
+  meName: { color: '#FFF', fontSize: 20, fontWeight: 'bold', marginTop: 10 },
+  meEmail: { color: '#AAA', fontSize: 14, marginTop: 4 },
   meMenuWrapper: { paddingHorizontal: 20 },
-  meMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1 },
+  meMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: '#222' },
   meMenuIcon: { marginRight: 20 },
-  meMenuText: { fontSize: 16, fontWeight: '500' }
+  meMenuText: { color: '#FFF', fontSize: 16, fontWeight: '500' }
 });
