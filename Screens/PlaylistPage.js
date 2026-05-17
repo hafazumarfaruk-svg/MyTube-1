@@ -1,45 +1,17 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { View, StyleSheet, Text, ActivityIndicator, TouchableOpacity, FlatList, Image, Dimensions, StatusBar } from 'react-native';
-import { Video } from 'expo-av';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, FlatList, Image, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { WebView } from 'react-native-webview';
 import { DeviceEventEmitter } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // 🚨 স্টোরেজ প্যাকেজ ইমপোর্ট 🚨
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
-const REMOTE_ENGINE_URL = "https://gist.githubusercontent.com/hafazumarfaruk-svg/2d3deb4c65af209a4d4a0ee0c09765f9/raw/yt_engine.js";
-
-export default function PlaylistPage({ route, navigation }) {
-  const { videoId, videoData = {} } = route?.params || {};
-  const [videoUrl, setVideoUrl] = useState(null);
-  const [loadingUrl, setLoadingUrl] = useState(true);
-  const [injectedJS, setInjectedJS] = useState(""); 
-  const [savedPlaylist, setSavedPlaylist] = useState([]); // 🚨 সেভ করা প্লেলিস্টের স্টেট 🚨
-  const webViewRef = useRef(null);
+export default function PlaylistPage({ navigation }) {
+  const [savedPlaylist, setSavedPlaylist] = useState([]); 
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
-  useEffect(() => {
-    const fetchRemoteEngine = async () => {
-      try {
-        const response = await fetch(REMOTE_ENGINE_URL);
-        const script = await response.text();
-        if (script.length > 50) setInjectedJS(script);
-      } catch (error) {
-        setInjectedJS(`true;`);
-      }
-    };
-    fetchRemoteEngine();
-  }, []);
-
-  useEffect(() => {
-    setVideoUrl(null);
-    if (!videoId) setLoadingUrl(false);
-    else setLoadingUrl(true);
-  }, [videoId]);
-
-  // 🚨 প্লেলিস্ট লোড করার এবং রিয়েল-টাইম আপডেটের লজিক 🚨
+  // প্লেলিস্ট লোড করার এবং রিয়েল-টাইম আপডেটের লজিক
   useEffect(() => {
     loadPlaylist();
     const sub = DeviceEventEmitter.addListener('playlistUpdated', loadPlaylist);
@@ -50,10 +22,12 @@ export default function PlaylistPage({ route, navigation }) {
     try {
       const data = await AsyncStorage.getItem('my_saved_playlist');
       if (data) setSavedPlaylist(JSON.parse(data));
-    } catch (e) {}
+    } catch (e) {
+      console.log("Error loading playlist", e);
+    }
   };
 
-  // 🚨 প্লেলিস্ট থেকে ভিডিও রিমুভ করার ফাংশন 🚨
+  // প্লেলিস্ট থেকে ভিডিও রিমুভ করার ফাংশন
   const removeVideo = async (id) => {
     try {
       const filtered = savedPlaylist.filter(v => v.id !== id);
@@ -62,99 +36,46 @@ export default function PlaylistPage({ route, navigation }) {
     } catch(e) {}
   };
 
-  const handleMessage = (event) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'VIDEO_LINK' && data.url && !videoUrl) {
-        setVideoUrl(data.url);
-        setLoadingUrl(false);
-        if(webViewRef.current) webViewRef.current.stopLoading();
-      }
-    } catch (e) {
-      if (event.nativeEvent.data.includes('/videoplayback') && !videoUrl) {
-        setVideoUrl(event.nativeEvent.data);
-        setLoadingUrl(false);
-      }
-    }
-  };
-
   return (
-    <View style={styles.singleContainer}>
-      <StatusBar backgroundColor="#000" barStyle="light-content" />
+    <View style={styles.container}>
+      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" />
 
-      <View style={styles.videoPlayerWrapper}>
-        <TouchableOpacity style={styles.floatingBackBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-down" size={30} color="#FFF" />
+      {/* 🚨 সিম্পল এবং সুন্দর হেডার 🚨 */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={28} color="#FFF" />
         </TouchableOpacity>
-
-        {loadingUrl ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#FF0000" />
-            <Text style={{color: '#888', marginTop: 15, fontSize: 12}}>Loading Playlist Engine...</Text>
-          </View>
-        ) : videoUrl ? (
-          <Video 
-            source={{ uri: videoUrl, headers: { 'User-Agent': 'Mozilla/5.0' } }} 
-            style={styles.singleVideo} 
-            useNativeControls 
-            resizeMode="contain" 
-            shouldPlay 
-          />
-        ) : !videoId ? (
-          // 🚨 সরাসরি প্লেলিস্টে আসলে এই সুন্দর মেসেজটি দেখাবে 🚨
-          <View style={styles.loadingContainer}>
-            <Ionicons name="folder-open-outline" size={50} color="#FF0000" />
-            <Text style={{color: '#FFF', marginTop: 10, fontSize: 14, fontWeight: 'bold'}}>আপনার সংরক্ষিত প্লেলিস্ট</Text>
-            <Text style={{color: '#AAA', marginTop: 4, fontSize: 12}}>নিচে আপনার সেভ করা সব ভিডিও রয়েছে</Text>
-          </View>
-        ) : null}
-
-        {videoId && !videoUrl && injectedJS !== "" && (
-          <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }}>
-            <WebView 
-              ref={webViewRef}
-              source={{ uri: `https://m.youtube.com/watch?v=${videoId}` }}
-              userAgent="Mozilla/5.0"
-              injectedJavaScript={injectedJS}
-              onMessage={handleMessage}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              mediaPlaybackRequiresUserAction={false}
-            />
-          </View>
-        )}
+        <Text style={styles.headerTitle}>My Saved Playlist</Text>
+        <Text style={styles.videoCount}>{savedPlaylist.length} Videos</Text>
       </View>
 
-      {/* 🚨 সেভ করা প্লেলিস্ট দেখানোর জন্য FlatList 🚨 */}
+      {/* 🚨 সেভ করা প্লেলিস্টের লিস্ট 🚨 */}
       <FlatList 
         data={savedPlaylist} 
         keyExtractor={(item, index) => item.id + index} 
+        contentContainerStyle={{ paddingBottom: 150 }} // গ্লোবাল প্লেয়ারের জন্য নিচে জায়গা রাখা হলো
         renderItem={({item}) => (
           <TouchableOpacity 
             style={styles.recVideoCard} 
-            // 🚨 ক্লিক করলেই গ্লোবাল প্লেয়ারে প্লে হবে 🚨
+            // 🚨 ক্লিক করলেই সরাসরি গ্লোবাল প্লেয়ারে প্লে হবে 🚨
             onPress={() => DeviceEventEmitter.emit('playVideo', { videoId: item.id, videoData: item })}
           >
-            <Image source={{ uri: item.thumbnail }} style={styles.recThumbnailImage} />
-            <View style={styles.recVideoInfo}>
-              <Text style={styles.recVideoTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.recVideoMeta}>{item.channel} {item.views ? `• ${item.views}` : ''}</Text>
+            <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
+            <View style={styles.videoInfo}>
+              <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+              <Text style={styles.videoMeta}>{item.channel} {item.views ? `• ${item.views}` : ''}</Text>
             </View>
-            <TouchableOpacity style={{padding: 10}} onPress={() => removeVideo(item.id)}>
-                <Ionicons name="trash-outline" size={24} color="#FF0000" />
+            <TouchableOpacity style={styles.deleteBtn} onPress={() => removeVideo(item.id)}>
+                <Ionicons name="trash-outline" size={24} color="#FF4444" />
             </TouchableOpacity>
           </TouchableOpacity>
         )}
         ListEmptyComponent={() => (
-            <View style={{padding: 30, alignItems: 'center'}}>
-                <Text style={{color: '#AAA'}}>কোনো ভিডিও সেভ করা নেই!</Text>
+            <View style={styles.emptyContainer}>
+                <Ionicons name="folder-open-outline" size={70} color="#333" />
+                <Text style={styles.emptyTitle}>প্লেলিস্ট একদম ফাঁকা!</Text>
+                <Text style={styles.emptySubtitle}>ভিডিও চলাকালীন সেটিংস থেকে "Save to Playlist" এ ক্লিক করে ভিডিও সেভ করুন।</Text>
             </View>
-        )}
-        ListHeaderComponent={() => (
-          <View style={styles.detailsContainer}>
-            <Text style={styles.videoMainTitle}>{videoData.title || "My Saved Playlist"}</Text>
-            <Text style={styles.videoMainMeta}>{savedPlaylist.length} Videos Saved</Text>
-          </View>
         )}
       />
     </View>
@@ -162,17 +83,37 @@ export default function PlaylistPage({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  singleContainer: { flex: 1, backgroundColor: '#0F0F0F' },
-  videoPlayerWrapper: { width: '100%', height: 230, backgroundColor: '#000', justifyContent: 'center' },
-  singleVideo: { width: '100%', height: '100%' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  floatingBackBtn: { position: 'absolute', top: 10, left: 10, zIndex: 20, padding: 5, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
-  detailsContainer: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
-  videoMainTitle: { color: '#FFF', fontSize: 17, fontWeight: 'bold' },
-  videoMainMeta: { color: '#AAA', fontSize: 12, marginTop: 5 },
-  recVideoCard: { flexDirection: 'row', padding: 10, alignItems: 'center' },
-  recThumbnailImage: { width: 140, height: 80, borderRadius: 8, backgroundColor: '#222' },
-  recVideoInfo: { flex: 1, marginLeft: 12 },
-  recVideoTitle: { color: '#FFF', fontSize: 14, lineHeight: 18 },
-  recVideoMeta: { color: '#AAA', fontSize: 11, marginTop: 4 },
+  container: { flex: 1, backgroundColor: '#0F0F0F' },
+  
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 15,
+    paddingBottom: 15,
+    paddingHorizontal: 15,
+    backgroundColor: '#1A1A1A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    elevation: 5
+  },
+  backBtn: { marginRight: 15 },
+  headerTitle: { color: '#FFF', fontSize: 20, fontWeight: 'bold', flex: 1 },
+  videoCount: { color: '#AAA', fontSize: 14, fontWeight: 'bold' },
+
+  recVideoCard: { 
+    flexDirection: 'row', 
+    padding: 12, 
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A1A'
+  },
+  thumbnailImage: { width: 140, height: 80, borderRadius: 8, backgroundColor: '#222' },
+  videoInfo: { flex: 1, marginLeft: 12 },
+  videoTitle: { color: '#FFF', fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  videoMeta: { color: '#AAA', fontSize: 12, marginTop: 6 },
+  deleteBtn: { padding: 10 },
+
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100, paddingHorizontal: 40 },
+  emptyTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginTop: 15 },
+  emptySubtitle: { color: '#888', fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
 });
