@@ -40,6 +40,7 @@ export default function PlaylistPage({ navigation }) {
     <View style={styles.container}>
       <StatusBar backgroundColor="transparent" barStyle="light-content" translucent={true} />
 
+      {/* হোম স্ক্রিনের মতো হেডার এবং সার্চ বার */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <Ionicons name="logo-youtube" size={28} color="#FF0000" />
@@ -51,6 +52,7 @@ export default function PlaylistPage({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* প্লেলিস্টের টাইটেল বার */}
       <View style={styles.playlistTitleBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
@@ -62,18 +64,18 @@ export default function PlaylistPage({ navigation }) {
       <FlatList 
         data={savedPlaylist} 
         keyExtractor={(item, index) => item.id + index} 
-        contentContainerStyle={{ paddingBottom: height / 6 }} // 🚨 এর কারণে নিচের কালো দাগ আর আসবে না 🚨
+        contentContainerStyle={{ paddingBottom: height / 6 }} 
         renderItem={({item}) => (
           <TouchableOpacity 
             style={styles.recVideoCard} 
-            // 🚨 গ্লোবাল প্লেয়ারে ভিডিও প্লে করার লজিক 🚨
-            onPress={() => DeviceEventEmitter.emit('playVideo', { videoId: item.id, videoData: item })}
+            activeOpacity={0.9} // হোম স্ক্রিনের মতো স্মুথ টাচ
+            // 🚨 হুবহু হোম স্ক্রিনের লজিক: PlayerScreen-এ নেভিগেট করা 🚨
+            onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}
           >
             <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
             <View style={styles.videoInfo}>
               <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
               <Text style={styles.videoMeta}>{item.channel}</Text>
-              {/* 🚨 সময় এবং তারিখ দেখানো হচ্ছে 🚨 */}
               <Text style={styles.addedDateText}>
                   <Ionicons name="time-outline" size={12}/> Added: {item.addedAt || 'Unknown Date'}
               </Text>
@@ -100,7 +102,6 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#000000', 
     paddingTop: height / 32,    
-    // 🚨 paddingBottom রিমুভ করা হয়েছে যাতে কালো দাগ না থাকে 🚨
   },
   
   header: { 
@@ -141,10 +142,7 @@ const styles = StyleSheet.create({
   videoInfo: { flex: 1, marginLeft: 12 },
   videoTitle: { color: '#FFF', fontSize: 15, lineHeight: 20, fontWeight: '500' },
   videoMeta: { color: '#AAA', fontSize: 12, marginTop: 6 },
-  
-  // 🚨 তারিখ এবং সময়ের নতুন স্টাইল 🚨
   addedDateText: { color: '#4CAF50', fontSize: 11, marginTop: 4, fontWeight: '500' }, 
-  
   deleteBtn: { padding: 10 },
 
   emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100, paddingHorizontal: 40 },
