@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
 import * as WebBrowser from 'expo-web-browser'; 
-import AsyncStorage from '@react-native-async-storage/async-storage'; // 🚨 নতুন স্টোরেজ প্যাকেজ 🚨
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
@@ -98,6 +98,7 @@ export default function GlobalPlayer() {
           return true;
       } else if (playerState === 'center' || playerState === 'full') {
           setPlayerState('mini');
+          
           const state = navigation.getState();
           if (state && state.routes) {
               const routes = state.routes;
@@ -139,7 +140,7 @@ export default function GlobalPlayer() {
             scale.setValue(1); 
             baseScaleRef.current = 1;
         }
-    } catch (error) {}
+    } catch (error) { console.log(error); }
   };
 
   const syncAudioWithVideo = async (targetPositionSeconds) => {
@@ -239,6 +240,7 @@ export default function GlobalPlayer() {
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
+          
           handleSkip(side === 'right' ? 10 : -10, true); 
       } else {
           lastTapRef.current = { time: now, side };
@@ -263,19 +265,25 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
-  // 🚨 প্লেলিস্টে সেভ করার লজিক 🚨
+  // 🚨 প্লেলিস্টে সেভ করার লজিক (সময় এবং তারিখ যুক্ত করা হয়েছে) 🚨
   const saveToPlaylist = async () => {
       setShowSettingsMenu(false);
       try {
           const vidId = currentVideoIdRef.current;
           if (!vidId) return;
 
+          // তারিখ এবং সময় ফরম্যাটিং
+          const now = new Date();
+          const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+          const addedDate = now.toLocaleDateString('en-US', options);
+
           const newVideo = {
               id: vidId,
               title: videoData?.title || fallbackData?.data?.title || "Unknown Video",
               channel: videoData?.channel || "Unknown Channel",
               views: videoData?.views || "",
-              thumbnail: videoData?.thumbnail || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+              thumbnail: videoData?.thumbnail || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+              addedAt: addedDate // 🚨 নতুন লজিক: সময় সেভ করা 🚨
           };
 
           const existingData = await AsyncStorage.getItem('my_saved_playlist');
@@ -284,9 +292,9 @@ export default function GlobalPlayer() {
           if (playlist.some(v => v.id === vidId)) {
               alert("এই ভিডিওটি আগে থেকেই প্লেলিস্টে আছে!");
           } else {
-              playlist.unshift(newVideo); // নতুন ভিডিও সবার ওপরে থাকবে
+              playlist.unshift(newVideo); 
               await AsyncStorage.setItem('my_saved_playlist', JSON.stringify(playlist));
-              DeviceEventEmitter.emit('playlistUpdated'); // প্লেলিস্ট পেজকে আপডেট করার সিগন্যাল
+              DeviceEventEmitter.emit('playlistUpdated'); 
               alert("প্লেলিস্টে সফলভাবে সেভ হয়েছে!");
           }
       } catch (error) {
@@ -429,7 +437,7 @@ export default function GlobalPlayer() {
         ]} 
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
     >
-      <View style={styles.videoWrapper}>
+      <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
         {streamUrl && !fallbackData && !isAudioMode && (
           <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
@@ -508,7 +516,6 @@ export default function GlobalPlayer() {
           </View>
         )}
 
-        {/* 🚨 Settings Menu Modal 🚨 */}
         <Modal visible={showSettingsMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
@@ -530,7 +537,7 @@ export default function GlobalPlayer() {
                         <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
                     </TouchableOpacity>
 
-                    {/* 🚨 প্লেলিস্টে সেভ করার বাটন 🚨 */}
+                    {/* প্লেলিস্টে সেভ করার বাটন */}
                     <TouchableOpacity style={styles.menuItem} onPress={saveToPlaylist}>
                         <Ionicons name="add-circle-outline" size={20} color="#FFF" style={styles.menuIcon} />
                         <Text style={styles.menuText}>Save to Playlist</Text>
@@ -547,7 +554,6 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 Speed Selection Modal 🚨 */}
         <Modal visible={showSpeedMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
@@ -597,8 +603,9 @@ const styles = StyleSheet.create({
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
-  animatedVideoWrapper: { flex: 1, width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
-  video: { flex: 1, width: '100%', height: '100%' },
+  videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
+  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
+  video: { width: '100%', height: '100%' },
   
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
