@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import SettingsScreen from '../Settings/SettingsScreen';
 import ShortsScreen from './ShortsScreen'; 
-import LiveScreen from './livescreen'; // লাইভ স্ক্রিন ফাইল ইমপোর্ট করা হলো
+import LiveScreen from './livescreen'; // [NEW]: লাইভ স্ক্রিন ফাইল ইমপোর্ট করা হলো
 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const FEED_TOPICS = [ "trending bangladesh", "bangla natok 2026", "bangla new song", "somoy tv live", "cricket highlights", "bangla waz short", "bengali vlog", "bangla news today" ];
@@ -176,6 +176,7 @@ export default function HomeScreen({ route }) {
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
              <Text style={styles.logoText}>MyTube</Text>
           </View>
+          {/* [FIXED]: এখানে 'Search' এর পরিবর্তে 'SearchSettings' দেওয়া হয়েছে */}
           <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
             <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>{searchQuery || "সার্চ..."}</Text>
             <Ionicons name="search" size={18} color="#AAA" />
@@ -215,10 +216,7 @@ export default function HomeScreen({ route }) {
                  <MeMenuItem icon="time-outline" text="HISTORY" onPress={() => navigation.navigate('History')} />
                  <MeMenuItem icon="download-outline" text="DOWNLOAD" onPress={() => navigation.navigate('Downloads')} />
                  <MeMenuItem icon="notifications-outline" text="MY SUBSCRIBE" onPress={() => navigation.navigate('Subscriptions')} />
-                 
-                 {/* [UPDATED]: প্লেলিস্ট অপশন যোগ করা হলো এবং ডিফল্ট প্যারামিটার পাঠানো হলো */}
-                 <MeMenuItem icon="list-outline" text="MY PLAYLIST" onPress={() => navigation.navigate('Playlist', { videoId: null, videoData: { title: "My Playlist" }, playlist: [] })} />
-                 
+                 <MeMenuItem icon="list-outline" text="MY PLAYLIST" onPress={() => navigation.navigate('Playlist')} />
                  <MeMenuItem icon="settings-outline" text="SETTINGS" onPress={() => setActiveTab('Settings')} />
                  <MeMenuItem icon="mail-outline" text="SUPPORT TO GMAIL" onPress={() => {}} />
              </View>
