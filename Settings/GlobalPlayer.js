@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Platform } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -139,7 +139,6 @@ export default function GlobalPlayer() {
           return true;
       } else if (playerState === 'center' || playerState === 'full') {
           setPlayerState('mini');
-          
           const state = navigation.getState();
           if (state && state.routes) {
               const routes = state.routes;
@@ -184,18 +183,10 @@ export default function GlobalPlayer() {
     } catch (error) { console.log(error); }
   };
 
-  // 🚨 ফিক্স ২: অডিও স্কিপ করার সময় ল্যাগ বা স্টাটারিং রোধে সিঙ্ক-লক (Sync Lock) 🚨
-  const syncAudioWithVideo = async (targetPositionSeconds) => {
+  // 🚨 ফিক্স ১: স্কিপ করার সময় কোনো await বা getStatusAsync রাখা হয়নি, যাতে অডিও একদম সাথে সাথে ফরোয়ার্ড হয় 🚨
+  const syncAudioWithVideo = (targetPositionSeconds) => {
       isSyncingRef.current = true; 
-      try {
-          const status = await syncAudioRef.current.getStatusAsync();
-          if (status.isLoaded) {
-              await syncAudioRef.current.setPositionAsync(targetPositionSeconds * 1000);
-              if (player && player.playing && !status.isPlaying) {
-                  await syncAudioRef.current.playAsync();
-              }
-          }
-      } catch (e) {}
+      syncAudioRef.current.setPositionAsync(targetPositionSeconds * 1000).catch(()=>{});
       setTimeout(() => { isSyncingRef.current = false; }, 500); 
   };
 
@@ -352,25 +343,26 @@ export default function GlobalPlayer() {
     }
   };
 
-  const handleSkip = async (amount, isSilent = false) => {
+  // 🚨 ফিক্স ১: স্কিপিং এর সময় প্রসেসরের চাপ কমাতে await ব্লক রিমুভ করা হয়েছে 🚨
+  const handleSkip = (amount, isSilent = false) => {
       let currentPosition = isAudioMode ? currentTime : (player ? player.currentTime : currentTime);
       let newTime = currentPosition + amount;
       
       if (newTime < 0) newTime = 0;
       if (newTime > duration) newTime = duration;
       
-      // 🚨 স্কিপ ল্যাগের ফিক্স 🚨
+      isSyncingRef.current = true;
+      setCurrentTime(newTime);
+
       if (isAudioMode) {
-          isSyncingRef.current = true;
-          await syncAudioRef.current.setPositionAsync(newTime * 1000);
-          setTimeout(() => { isSyncingRef.current = false; }, 500);
+          syncAudioRef.current.setPositionAsync(newTime * 1000).catch(()=>{});
       } else if (player) {
           player.currentTime = newTime; 
-          if (streamMode === 'separate') await syncAudioWithVideo(newTime); 
+          if (streamMode === 'separate') syncAudioWithVideo(newTime); 
       }
       
-      setCurrentTime(newTime);
       if (!isSilent) triggerControls(); 
+      setTimeout(() => { isSyncingRef.current = false; }, 500);
   };
 
   const handleTap = (side) => {
@@ -440,58 +432,6 @@ export default function GlobalPlayer() {
           alert("সেভ করতে সমস্যা হয়েছে!");
       }
   };
-
-  useEffect(() => {
-    const interval = setInterval(async () => {
-        if (isSyncingRef.current) return; 
-
-        if (isAudioMode) {
-            isSyncingRef.current = true;
-            try {
-                const audioStatus = await syncAudioRef.current.getStatusAsync();
-                if (audioStatus.isLoaded) {
-                    setIsPlayingUI(audioStatus.isPlaying);
-                    if (audioStatus.playableDurationMillis) setBuffered(audioStatus.playableDurationMillis / 1000);
-                    if (!isSlidingRef.current) {
-                        setCurrentTime(audioStatus.positionMillis / 1000);
-                        if (audioStatus.durationMillis) setDuration(audioStatus.durationMillis / 1000);
-                    }
-                }
-            } catch(e) {}
-            isSyncingRef.current = false;
-        } else {
-            setIsPlayingUI(player?.playing || false);
-            
-            if (player) {
-                if (player.bufferedPosition) setBuffered(player.bufferedPosition); 
-                if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
-                    setCurrentTime(player.currentTime);
-                    setDuration(player.duration > 0 ? player.duration : 1);
-                }
-            }
-
-            if (streamMode === 'separate' && videoSource) {
-                isSyncingRef.current = true;
-                try {
-                    const audioStatus = await syncAudioRef.current.getStatusAsync();
-                    if (audioStatus.isLoaded) {
-                        if (player && player.playing) {
-                            const diff = Math.abs((player.currentTime * 1000) - audioStatus.positionMillis);
-                            if (diff > 800) { 
-                                await syncAudioRef.current.setPositionAsync(player.currentTime * 1000);
-                            }
-                            if (!audioStatus.isPlaying) await syncAudioRef.current.playAsync();
-                        } else {
-                            if (audioStatus.isPlaying) await syncAudioRef.current.pauseAsync().catch(()=>{});
-                        }
-                    }
-                } catch(e) {}
-                isSyncingRef.current = false;
-            }
-        }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [player, streamMode, isAudioMode, videoSource]);
 
   const videoPanResponder = useRef(PanResponder.create({
       onStartShouldSetPanResponder: () => false, 
@@ -572,9 +512,58 @@ export default function GlobalPlayer() {
     }
   })).current;
 
-  // 🚨 ফিক্স ৩: প্লেয়ার কেটে দিলে ঘোস্ট অডিও বন্ধ করার লজিক 🚨
+  // 🚨 ফিক্স ১: CPU সেভার চেকার লুপে strict লক বসানো হয়েছে যাতে প্রসেসর ওভারলোড হয়ে ক্র্যাশ না করে 🚨
+  useEffect(() => {
+    let isChecking = false; 
+    const interval = setInterval(async () => {
+        if (isChecking || isSyncingRef.current) return; 
+        isChecking = true;
+
+        try {
+            if (isAudioMode) {
+                const audioStatus = await syncAudioRef.current.getStatusAsync();
+                if (audioStatus.isLoaded) {
+                    setIsPlayingUI(audioStatus.isPlaying);
+                    if (audioStatus.playableDurationMillis) setBuffered(audioStatus.playableDurationMillis / 1000);
+                    if (!isSlidingRef.current) {
+                        setCurrentTime(audioStatus.positionMillis / 1000);
+                        if (audioStatus.durationMillis) setDuration(audioStatus.durationMillis / 1000);
+                    }
+                }
+            } else {
+                setIsPlayingUI(player?.playing || false);
+                
+                if (player) {
+                    if (player.bufferedPosition) setBuffered(player.bufferedPosition); 
+                    if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
+                        setCurrentTime(player.currentTime);
+                        setDuration(player.duration > 0 ? player.duration : 1);
+                    }
+                }
+
+                if (streamMode === 'separate' && videoSource) {
+                    const audioStatus = await syncAudioRef.current.getStatusAsync();
+                    if (audioStatus.isLoaded) {
+                        if (player && player.playing) {
+                            const diff = Math.abs((player.currentTime * 1000) - audioStatus.positionMillis);
+                            if (diff > 1000) { 
+                                await syncAudioRef.current.setPositionAsync(player.currentTime * 1000);
+                            }
+                            if (!audioStatus.isPlaying) await syncAudioRef.current.playAsync();
+                        } else {
+                            if (audioStatus.isPlaying) await syncAudioRef.current.pauseAsync().catch(()=>{});
+                        }
+                    }
+                }
+            }
+        } catch(e) {}
+        
+        isChecking = false; 
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [player, streamMode, isAudioMode, videoSource]);
+
   const closePlayer = async () => {
-      fetchIdRef.current = Date.now(); // আগের সব লোডিং বাতিল হবে
       setPlayerState('hidden');
       if (isFullscreen) await toggleFullscreen();
       setStreamUrl(null);
@@ -624,7 +613,6 @@ export default function GlobalPlayer() {
                 ) : null}
             </Animated.View>
 
-            {/* 🚨 ফিক্স ১: অডিও মোডের ব্যাকগ্রাউন্ড থেকে থাম্বনেইল Image রিমুভ করা হয়েছে 🚨 */}
             {isAudioMode && (
                 <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', zIndex: 2, backgroundColor: '#000' }]}>
                     <Ionicons name="headset" size={70} color="#00BFA5" />
@@ -695,18 +683,18 @@ export default function GlobalPlayer() {
                           if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
                       }}
                       onValueChange={(v) => setCurrentTime(v)} 
-                      onSlidingComplete={async (v) => {
-                          // 🚨 স্লাইডার দিয়ে স্কিপ করার সময়ও সিঙ্ক-লক বসানো হয়েছে 🚨
+                      onSlidingComplete={(v) => {
+                          // 🚨 স্লাইডারে স্কিপ করার সময়ও await রিমুভ করা হয়েছে 🚨
+                          isSyncingRef.current = true;
                           if (isAudioMode) {
-                              isSyncingRef.current = true;
-                              await syncAudioRef.current.setPositionAsync(v * 1000);
-                              setTimeout(() => { isSyncingRef.current = false; }, 500);
+                              syncAudioRef.current.setPositionAsync(v * 1000).catch(()=>{});
                           } else if (player) {
                               player.currentTime = v; 
-                              if (streamMode === 'separate') await syncAudioWithVideo(v);
+                              if (streamMode === 'separate') syncAudioWithVideo(v);
                           }
                           isSlidingRef.current = false; 
                           triggerControls();
+                          setTimeout(() => { isSyncingRef.current = false; }, 500);
                       }}
                       minimumTrackTintColor="#FF0000"
                       maximumTrackTintColor="transparent" 
@@ -846,7 +834,9 @@ const styles = StyleSheet.create({
   timeTextRight: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
   
   sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 },
-  customTrackContainer: { position: 'absolute', left: Platform.OS === 'android' ? 15 : 0, right: Platform.OS === 'android' ? 15 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
+  
+  // 🚨 ফিক্স ৩: সবুজ বাফার দাগটিকে একদম স্লাইডারের লাল দাগের নিচে বসানো হয়েছে 🚨
+  customTrackContainer: { position: 'absolute', top: 18.5, left: Platform.OS === 'android' ? 14 : 0, right: Platform.OS === 'android' ? 14 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
   bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
