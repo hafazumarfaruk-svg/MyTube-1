@@ -8,7 +8,8 @@ const { width, height } = Dimensions.get('window');
 const HEADER_HEIGHT = height / 12; 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-export default function SearchSettingScreen() {
+// 🚨 [MODIFIED]: 'route' রিসিভ করা হচ্ছে 🚨
+export default function SearchSettingScreen({ route }) {
   const navigation = useNavigation();
   const inputRef = useRef(null);
 
@@ -25,7 +26,6 @@ export default function SearchSettingScreen() {
   const [apiKey, setApiKey] = useState(null);
 
   useEffect(() => {
-    // শুধুমাত্র অ্যাপ ওপেন হলে একবার হিস্ট্রি লোড হবে। ব্যাক করলে আর রিলোড হবে না (ফ্রিজ রোধ করতে)
     const loadData = async () => {
       try {
         const savedHistory = await AsyncStorage.getItem('myTubeSearchHistory');
@@ -34,13 +34,22 @@ export default function SearchSettingScreen() {
     };
     loadData();
 
-    if (!query) {
+    if (!query && !route?.params?.initialSearch) {
       InteractionManager.runAfterInteractions(() => {
         const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100);
         return () => clearTimeout(timeout);
       });
     }
   }, []);
+
+  // 🚨 [NEW]: PlayerScreen থেকে আসা লিংক অটোমেটিক সার্চ করার লজিক 🚨
+  useEffect(() => {
+    if (route?.params?.initialSearch) {
+        const searchUrl = route.params.initialSearch;
+        setQuery(searchUrl);
+        handleSearchSubmit(searchUrl);
+    }
+  }, [route?.params?.initialSearch]);
 
   const handleTextChange = async (text) => {
     setQuery(text);
@@ -79,17 +88,12 @@ export default function SearchSettingScreen() {
     setSuggestions([]);
     setShowResults(true);
 
-    // ইউটিউব লিংক চেক করা হচ্ছে
     const ytLinkMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?\s]{11})/);
 
     InteractionManager.runAfterInteractions(() => {
       if (ytLinkMatch && ytLinkMatch[1]) {
-        const videoId = ytLinkMatch[1];
-        // লিংক পাওয়া গেলে সেই নির্দিষ্ট ভিডিও আইডি দিয়ে সার্চ রিকোয়েস্ট পাঠানো হচ্ছে
-        // ফলে ইউটিউব আসল টাইটেল, চ্যানেল অবতার, ভিউ ইত্যাদি সব সঠিক তথ্য রিটার্ন করবে
-        fetchSearchResults(videoId);
+        fetchSearchResults(ytLinkMatch[1]);
       } else {
-        // যদি লিংক না হয়, তবে সাধারণ টেক্সট সার্চ হবে
         fetchSearchResults(text.trim());
       }
     });
@@ -235,7 +239,6 @@ export default function SearchSettingScreen() {
     }, 0);
   };
 
-  // শর্টস স্ক্রিনের জন্য নেভিগেশন - সাথে সাথে বিচ্ছিন্ন করার জন্য setTimeout ব্যবহার করা হলো
   const navigateToShorts = (short) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
