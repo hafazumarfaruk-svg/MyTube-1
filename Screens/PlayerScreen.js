@@ -16,12 +16,14 @@ export default function PlayerScreen({ route, navigation }) {
   const [relatedVideos, setRelatedVideos] = useState([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [isExpandedDesc, setIsExpandedDesc] = useState(false);
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-  // 2D Side-Sheet Modal States
+  // Modals States
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showDescModal, setShowDescModal] = useState(false);
+  const [showCommentModal, setShowCommentModal] = useState(false);
+
   const [downloadStep, setDownloadStep] = useState('fetching'); 
   const [downloadLinks, setDownloadLinks] = useState([]);
   const [downloadType, setDownloadType] = useState('video'); 
@@ -99,10 +101,6 @@ export default function PlayerScreen({ route, navigation }) {
 
       const response = await fetch(dlApiUrl);
       const resJson = await response.json();
-
-      if (resJson.success) {
-          // সাইলেন্ট ডাউনলোড
-      }
     } catch (error) {
       Alert.alert("সার্ভার এরর", "সার্ভারের সাথে কানেক্ট করা যায়নি।");
     }
@@ -158,7 +156,7 @@ export default function PlayerScreen({ route, navigation }) {
         setIsLoadingMore(false);
         return;
       }
-
+      
       let searchQuery = "trending bangla";
       if (videoData?.title) {
           searchQuery = videoData.title.split(' ').slice(0, 4).join(' ');
@@ -168,7 +166,7 @@ export default function PlayerScreen({ route, navigation }) {
       const text = await response.text();
       const match = text.match(/var ytInitialData = (.*?);<\/script>/);
       if (!match) return;
-
+      
       const jsonData = JSON.parse(match[1]);
       const extractedVids = [];
       const extractNodes = (node) => {
@@ -188,54 +186,66 @@ export default function PlayerScreen({ route, navigation }) {
           } else Object.values(node).forEach(extractNodes);
         }
       };
-
+      
       extractNodes(jsonData);
       setRelatedVideos(isLoadMore ? [...relatedVideos, ...extractedVids] : extractedVids.slice(0, 15));
     } catch (e) {} finally { setIsLoadingMore(false); }
   };
 
-  // লিংকগুলোকে ছোট থেকে বড় আকারে সাজানোর লজিক
   const getSortedLinks = () => {
       if(!downloadLinks) return [];
       return [...downloadLinks].sort((a, b) => {
           const valA = parseInt(a.quality.replace(/[^0-9]/g, '')) || 0;
           const valB = parseInt(b.quality.replace(/[^0-9]/g, '')) || 0;
-          return valA - valB; // Ascending order
+          return valA - valB; 
       });
   };
 
+  // লোগো না পেলে চ্যানেলের নামের অক্ষর দিয়ে ডাইনামিক লোগো তৈরির লজিক
+  const safeAvatar = (videoData?.avatar && videoData.avatar.trim() !== '') 
+      ? (videoData.avatar.startsWith('//') ? `https:${videoData.avatar}` : videoData.avatar) 
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(videoData?.channel || 'YT')}&background=random&color=fff&size=100`;
+
   const renderHeader = () => (
     <View style={styles.detailsContainer}>
-      <View style={styles.titleRow}>
-         <TouchableOpacity activeOpacity={0.8} onPress={() => setIsExpandedDesc(!isExpandedDesc)} style={styles.titleTextContainer}>
-            <Text style={styles.mainTitle} numberOfLines={isExpandedDesc ? null : 2}>{videoData?.title}</Text>
-         </TouchableOpacity>
-      </View>
+      <Text style={styles.mainTitle}>{videoData?.title}</Text>
+      <Text style={styles.mainViews}>{videoData?.views} {videoData?.publishedTime ? `• ${videoData.publishedTime}` : ''}</Text>
 
-      <View style={styles.metaActionRow}>
-         <View style={styles.metaLeft}>
-             <Text style={styles.mainViews}>{videoData?.views} {videoData?.publishedTime ? `• ${videoData.publishedTime}` : ''}</Text>
-             <Text style={styles.moreText}>...more</Text>
-         </View>
+      {/* নতুন স্মার্ট অ্যাকশন বাটন প্যানেল (Description, Comments, Audio, Download) */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRowContainer}>
+          
+          <TouchableOpacity style={styles.actionPill} onPress={() => setShowDescModal(true)}>
+              <Ionicons name="document-text-outline" size={18} color="#FFF" />
+              <Text style={styles.actionPillText}>বিবরণ</Text>
+          </TouchableOpacity>
 
-         <View style={styles.actionRight}>
-            {!videoData.localUri && (
-              <TouchableOpacity style={styles.iconOnlyBtn} onPress={openDownloadWindow} activeOpacity={0.6}>
-                 <Ionicons name="download-outline" size={24} color="#FFF" />
+          <TouchableOpacity style={styles.actionPill} onPress={() => setShowCommentModal(true)}>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color="#FFF" />
+              <Text style={styles.actionPillText}>কমেন্ট</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.actionPill, isAudioMode && {backgroundColor: '#00BFA5', borderColor: '#00BFA5'}]} onPress={handleBackgroundPlay}>
+              <Ionicons name={isAudioMode ? "headset" : "headset-outline"} size={18} color="#FFF" />
+              <Text style={styles.actionPillText}>অডিও</Text>
+          </TouchableOpacity>
+
+          {!videoData.localUri && (
+              <TouchableOpacity style={styles.actionPill} onPress={openDownloadWindow}>
+                  <Ionicons name="download-outline" size={18} color="#FFF" />
+                  <Text style={styles.actionPillText}>ডাউনলোড</Text>
               </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.iconOnlyBtn} onPress={handleBackgroundPlay} activeOpacity={0.6}>
-               <Ionicons name={isAudioMode ? "headset" : "headset-outline"} size={24} color={isAudioMode ? "#00BFA5" : "#FFF"} />
-            </TouchableOpacity>
-         </View>
-      </View>
+          )}
+
+      </ScrollView>
+
+      <View style={styles.divider} />
 
       <View style={styles.channelRow}>
-        <TouchableOpacity style={styles.channelLeft} onPress={() => navigation.navigate('Channel', { channelName: videoData.channel, channelAvatar: videoData.avatar })}>
-          <Image source={{ uri: videoData.avatar || 'https://via.placeholder.com/40' }} style={styles.channelAvatar} />
+        <TouchableOpacity style={styles.channelLeft} onPress={() => navigation.navigate('Channel', { channelName: videoData.channel, channelAvatar: safeAvatar })}>
+          <Image source={{ uri: safeAvatar }} style={styles.channelAvatar} />
           <View style={styles.channelTextCol}>
             <Text style={styles.channelName} numberOfLines={1}>{videoData.channel}</Text>
-            <Text style={styles.subCount}>{videoData.localUri ? 'Offline Storage' : 'Subscriber Info'}</Text>
+            <Text style={styles.subCount}>{videoData.localUri ? 'Offline Storage' : 'YouTube Channel'}</Text>
           </View>
         </TouchableOpacity>
         {!videoData.localUri && (
@@ -251,7 +261,7 @@ export default function PlayerScreen({ route, navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar hidden={true} /> 
-
+      
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 10}}>
@@ -274,7 +284,7 @@ export default function PlayerScreen({ route, navigation }) {
               </View>
           )}
       </View>
-
+      
       {isInitialLoading ? (
           <View style={styles.fullScreenLoader}>
               <View style={styles.skeletonTitle} />
@@ -311,50 +321,85 @@ export default function PlayerScreen({ route, navigation }) {
           />
       )}
 
-      {/* 2D Half-Screen (50% Width) Right-Aligned Modal */}
+      {/* ================================================== */}
+      {/* 1. বিবরণ (Description) Modal */}
+      {/* ================================================== */}
+      <Modal visible={showDescModal} transparent animationType="slide" onRequestClose={() => setShowDescModal(false)}>
+        <View style={styles.bottomSheetOverlayFull}>
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowDescModal(false)} />
+          <View style={styles.bottomSheetContentFull}>
+            <View style={styles.modalDragIndicator} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>বিবরণ (Description)</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowDescModal(false)}>
+                <Ionicons name="close" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 10 }}>
+                <Text style={styles.descTitle}>{videoData?.title}</Text>
+                <View style={styles.descMetaRow}>
+                    <Text style={styles.descMetaText}>{videoData?.views}</Text>
+                    <Text style={styles.descMetaText}>{videoData?.publishedTime}</Text>
+                </View>
+                <View style={styles.divider} />
+                <Text style={styles.descText}>
+                    এখানে ভিডিওর বিস্তারিত বিবরণ দেখানো হবে। ইউটিউব থেকে সম্পূর্ণ ডাটা নিয়ে আসার পর এই অংশটি স্বয়ংক্রিয়ভাবে আপডেট হয়ে যাবে।
+                </Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================================================== */}
+      {/* 2. কমেন্টস (Comments) Modal */}
+      {/* ================================================== */}
+      <Modal visible={showCommentModal} transparent animationType="slide" onRequestClose={() => setShowCommentModal(false)}>
+        <View style={styles.bottomSheetOverlayFull}>
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowCommentModal(false)} />
+          <View style={styles.bottomSheetContentFull}>
+            <View style={styles.modalDragIndicator} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>কমেন্টস</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowCommentModal(false)}>
+                <Ionicons name="close" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.commentPlaceholder}>
+                <Ionicons name="chatbubbles-outline" size={60} color="#444" />
+                <Text style={styles.commentPlaceholderText}>কমেন্ট সেকশন লোড হচ্ছে...</Text>
+                <Text style={styles.commentPlaceholderSub}>খুব শীঘ্রই এখানে দর্শকদের মন্তব্য দেখা যাবে।</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================================================== */}
+      {/* 3. 2D Half-Screen Download Modal */}
+      {/* ================================================== */}
       <Modal visible={showDownloadModal} transparent animationType="slide" onRequestClose={() => setShowDownloadModal(false)}>
         <View style={styles.modalOverlay}>
-
-          <TouchableOpacity 
-              style={styles.modalBackdrop} 
-              activeOpacity={1} 
-              onPress={() => setShowDownloadModal(false)} 
-          />
-
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowDownloadModal(false)} />
           <View style={styles.modalContent}>
-
+            
             <View style={styles.modalDragIndicator} />
-
             <View style={styles.modalHeader}>
-              {/* কোনো টেক্সট বা ভুল স্পেস রাখা হয়নি যাতে ক্র্যাশ না করে */}
               <View style={{ flex: 1 }} />
               <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowDownloadModal(false)}>
                 <Ionicons name="close" size={20} color="#FFF" />
               </TouchableOpacity>
             </View>
 
-            {/* Video/Audio Tabs */}
             <View style={styles.tabContainer}>
-                <TouchableOpacity 
-                    style={[styles.tabButton, downloadType === 'video' && styles.activeTabButton]} 
-                    onPress={() => changeDownloadType('video')}
-                    activeOpacity={0.8}
-                >
+                <TouchableOpacity style={[styles.tabButton, downloadType === 'video' && styles.activeTabButton]} onPress={() => changeDownloadType('video')} activeOpacity={0.8}>
                     <Ionicons name="videocam" size={16} color={downloadType === 'video' ? '#FFF' : '#888'} />
                     <Text style={[styles.tabText, downloadType === 'video' && styles.activeTabText]}>Video</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity 
-                    style={[styles.tabButton, downloadType === 'audio' && styles.activeTabButton]} 
-                    onPress={() => changeDownloadType('audio')}
-                    activeOpacity={0.8}
-                >
+                <TouchableOpacity style={[styles.tabButton, downloadType === 'audio' && styles.activeTabButton]} onPress={() => changeDownloadType('audio')} activeOpacity={0.8}>
                     <Ionicons name="musical-notes" size={16} color={downloadType === 'audio' ? '#FFF' : '#888'} />
                     <Text style={[styles.tabText, downloadType === 'audio' && styles.activeTabText]}>Audio</Text>
                 </TouchableOpacity>
             </View>
-
-            {/* List Content */}
+            
             {downloadStep === 'fetching' ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#00BFA5" />
@@ -395,7 +440,7 @@ const styles = StyleSheet.create({
     logoContainer: { flexDirection: 'row', alignItems: 'center', width: 130 },
     logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
     searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, paddingHorizontal: 12, alignItems: 'center', height: 38 },
-
+    
     playerWrapper: { width: '100%', height: PLAYER_HEIGHT, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
     initialPlayerLoader: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
     initialLoaderText: { color: '#00BFA5', marginTop: 10, fontSize: 14, fontWeight: '500' },
@@ -405,23 +450,20 @@ const styles = StyleSheet.create({
     skeletonMeta: { height: 12, backgroundColor: '#1A1A1A', width: '60%', borderRadius: 4, marginBottom: 20 },
     skeletonChannel: { height: 40, backgroundColor: '#1A1A1A', width: '100%', borderRadius: 8 },
 
-    detailsContainer: { padding: 12, backgroundColor: '#0F0F0F' },
-    titleRow: { flexDirection: 'row', alignItems: 'flex-start' },
-    titleTextContainer: { flex: 1 },
-    mainTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-
-    metaActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 15 },
-    metaLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    mainViews: { color: '#AAA', fontSize: 12 },
-    moreText: { color: '#FFF', fontSize: 12, fontWeight: 'bold', marginLeft: 8 },
-
-    actionRight: { flexDirection: 'row', alignItems: 'center' },
-    iconOnlyBtn: { padding: 8, marginLeft: 15 }, 
-
-    divider: { height: 1, backgroundColor: '#222', marginVertical: 10 },
+    detailsContainer: { padding: 15, backgroundColor: '#0F0F0F' },
+    mainTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 6 },
+    mainViews: { color: '#AAA', fontSize: 13, marginBottom: 15 },
+    
+    // Action Pills Row
+    actionRowContainer: { flexDirection: 'row', alignItems: 'center', paddingBottom: 5 },
+    actionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#262626', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, marginRight: 10, borderWidth: 1, borderColor: '#333' },
+    actionPillText: { color: '#FFF', fontSize: 13, fontWeight: '600', marginLeft: 6 },
+    
+    divider: { height: 1, backgroundColor: '#222', marginVertical: 15 },
+    
     channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     channelLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    channelAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#333' },
+    channelAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12, backgroundColor: '#333' },
     channelTextCol: { flex: 1 },
     channelName: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
     subCount: { color: '#AAA', fontSize: 12 },
@@ -429,7 +471,7 @@ const styles = StyleSheet.create({
     subscribeText: { color: '#000', fontSize: 14, fontWeight: 'bold' },
     subscribedBtn: { backgroundColor: '#222' },
     subscribedText: { color: '#FFF' },
-
+    
     recCard: { flexDirection: 'row', padding: 10, backgroundColor: '#0F0F0F' },
     thumbWrapper: { position: 'relative' },
     recThumb: { width: 150, height: 85, borderRadius: 10, backgroundColor: '#222' },
@@ -439,38 +481,35 @@ const styles = StyleSheet.create({
     recTitle: { color: '#FFF', fontSize: 14, fontWeight: '500', lineHeight: 20 },
     recMeta: { color: '#AAA', fontSize: 12, marginTop: 4 },
     recViewsInfo: { color: '#888', fontSize: 11, marginTop: 2 },
+    
+    // ==========================================
+    // Full Width Bottom Sheet (For Desc & Comments)
+    // ==========================================
+    bottomSheetOverlayFull: { flex: 1, justifyContent: 'flex-end' },
+    bottomSheetContentFull: { backgroundColor: '#1E1E1E', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 40 : 20, maxHeight: height * 0.75, minHeight: 400, elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10 },
+    
+    // Description Styles
+    descTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+    descMetaRow: { flexDirection: 'row', marginBottom: 10 },
+    descMetaText: { color: '#AAA', fontSize: 13, marginRight: 15, fontWeight: 'bold' },
+    descText: { color: '#CCC', fontSize: 14, lineHeight: 22 },
 
-    modalOverlay: { 
-        flex: 1, 
-        flexDirection: 'row', 
-        justifyContent: 'flex-end', 
-        alignItems: 'flex-end'
-    },
-    modalBackdrop: { 
-        ...StyleSheet.absoluteFillObject, 
-        backgroundColor: 'rgba(0,0,0,0.4)' 
-    },
-    modalContent: { 
-        width: '50%', 
-        backgroundColor: '#1E1E1E', 
-        borderTopLeftRadius: 25, 
-        borderTopRightRadius: 0, 
-        paddingHorizontal: 12, 
-        paddingTop: 10, 
-        paddingBottom: Platform.OS === 'ios' ? 40 : 20, 
-        maxHeight: height * 0.75,
-        minHeight: 350,
-        elevation: 15,
-        shadowColor: '#000',
-        shadowOffset: { width: -5, height: 0 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        zIndex: 10
-    },
+    // Comments Styles
+    commentPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 30 },
+    commentPlaceholderText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginTop: 15 },
+    commentPlaceholderSub: { color: '#888', fontSize: 13, marginTop: 5 },
+
+    // ==========================================
+    // Half Screen Modal Styles (For Download)
+    // ==========================================
+    modalOverlay: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end' },
+    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+    modalContent: { width: '50%', backgroundColor: '#1E1E1E', borderTopLeftRadius: 25, borderTopRightRadius: 0, paddingHorizontal: 12, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 40 : 20, maxHeight: height * 0.75, minHeight: 350, elevation: 15, shadowColor: '#000', shadowOffset: { width: -5, height: 0 }, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10 },
     modalDragIndicator: { width: 35, height: 4, backgroundColor: '#444', borderRadius: 2, alignSelf: 'center', marginBottom: 15 },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+    modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
     modalCloseBtn: { padding: 6, backgroundColor: '#2A2A2A', borderRadius: 15, marginLeft: 5 },
-
+    
     tabContainer: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 10, padding: 3, marginBottom: 15 },
     tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
     activeTabButton: { backgroundColor: '#2A2A2A' },
@@ -479,13 +518,9 @@ const styles = StyleSheet.create({
 
     loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     loadingText: { color: '#AAA', marginTop: 12, fontSize: 13 },
-
+    
     qualityListContainer: { paddingBottom: 10 },
-    qualityCard: { 
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
-        backgroundColor: '#282828', padding: 10, borderRadius: 12, marginBottom: 10, 
-        borderWidth: 1, borderColor: '#383838' 
-    },
+    qualityCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#282828', padding: 10, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#383838' },
     qualityInfoLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
     qualityIconBg: { backgroundColor: 'rgba(0, 191, 165, 0.1)', padding: 8, borderRadius: 10 },
     qualityText: { color: '#FFF', fontSize: 14, fontWeight: 'bold' }, 
