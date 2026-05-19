@@ -232,48 +232,61 @@ export default function PlayerScreen({ route, navigation }) {
       }
   };
 
-  // 🎯 নিখুঁত কমেন্ট সাবমিট লজিক (contenteditable সাপোর্ট সহ)
+  // 🎯 সুপার-অপ্টিমাইজড কমেন্ট সাবমিট লজিক
   const submitCommentOrReply = () => {
       if (!commentInputText.trim()) return;
       setLoadWebViewEngine(true);
       
-      // ডাবল কোটেশন এবং নতুন লাইন বাইপাস
       let safeText = commentInputText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
       if (replyingToCommentId) {
-          safeText = `${replyAuthorName} ` + safeText; // রিপ্লাইয়ের ক্ষেত্রে নাম আগে বসানো হবে
+          let cleanName = replyAuthorName.startsWith('@') ? replyAuthorName : `@${replyAuthorName}`;
+          safeText = `${cleanName} ` + safeText; 
       }
       
+      // 🚀 Auto-Scrolling ও Intersection Observer বাইপাস স্ক্রিপ্ট
       const runScript = `
         try {
-            // কমেন্ট বক্সটি DOM এ আনতে একটু নিচে স্ক্রল করা
-            window.scrollTo(0, 800);
-            
-            setTimeout(function() {
-                var placeholder = document.querySelector('ytd-comment-simplebox-renderer #placeholder-area');
+            var attempt = 0;
+            var scrollInterval = setInterval(function() {
+                // পেজের নিচে স্ক্রল করে ইউটিউবকে কমেন্ট বক্স লোড করতে বাধ্য করা হচ্ছে
+                window.scrollBy(0, window.innerHeight || 1000);
+                
+                var placeholder = document.querySelector('ytd-comment-simplebox-renderer #placeholder-area') || document.querySelector('ytd-comments-header-renderer #simplebox-placeholder');
+                
                 if (placeholder) {
-                    placeholder.click(); // ক্লিক করে একটিভ করা
+                    clearInterval(scrollInterval);
+                    placeholder.click(); 
                     
                     setTimeout(function() {
-                        var inputDiv = document.querySelector('ytd-comment-simplebox-renderer #contenteditable-root');
+                        var inputDiv = document.querySelector('ytd-comment-simplebox-renderer #contenteditable-root') || document.querySelector('#contenteditable-root');
                         if (inputDiv) {
-                            // YouTube এর contenteditable ডিভে লেখা বসানো
+                            inputDiv.focus();
                             inputDiv.innerText = "${safeText}";
                             inputDiv.dispatchEvent(new Event('input', { bubbles: true }));
                             
                             setTimeout(function() {
-                                var submitBtn = document.querySelector('ytd-comment-simplebox-renderer #submit-button button') || document.querySelector('ytd-comment-simplebox-renderer #submit-button');
+                                var submitBtn = document.querySelector('#submit-button') || document.querySelector('ytd-commentbox #submit-button');
                                 if (submitBtn) {
+                                    submitBtn.removeAttribute('disabled');
                                     submitBtn.click();
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'POST_SUCCESS' }));
+                                } else {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
                                 }
-                            }, 800);
+                            }, 1500);
+                        } else {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
                         }
-                    }, 1000);
-                } else {
-                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
+                    }, 1500);
+                } else if (attempt > 15) {
+                    clearInterval(scrollInterval);
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
                 }
-            }, 1500);
-        } catch(e) {}
+                attempt++;
+            }, 1000);
+        } catch(e) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
+        }
         true;
       `;
       
@@ -306,9 +319,8 @@ export default function PlayerScreen({ route, navigation }) {
       }
   };
 
-  // 🎯 চ্যানেলে নেভিগেট করার ফাংশন
   const navigateToChannel = (channelName, channelAvatar, channelId) => {
-      setShowCommentModal(false); // কমেন্ট শিট হাইড করা হচ্ছে
+      setShowCommentModal(false); 
       navigation.navigate('Channel', { 
           channelName: channelName, 
           channelAvatar: channelAvatar,
@@ -486,9 +498,9 @@ export default function PlayerScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar hidden={true} /> 
 
-      {/* 🚀 হিডেন ওফিসিয়াল ইঞ্জিন (sharedCookiesEnabled থাকায় লগইনের কুকি অটো নিয়ে নিবে) */}
+      {/* 🚀 অফ-স্ক্রিন রেন্ডারিং ইঞ্জিন: WebView এর সাইজ ফুল করা হয়েছে কিন্তু স্ক্রিনের বাইরে রাখা হয়েছে যাতে ডাটা ঠিকমত লোড হয় */}
       {loadWebViewEngine && videoId && !videoData.localUri && (
-          <View style={{ width: 0, height: 0, opacity: 0, overflow: 'hidden' }}>
+          <View style={{ position: 'absolute', top: -10000, left: -10000, width: Dimensions.get('window').width, height: Dimensions.get('window').height, overflow: 'hidden' }}>
               <WebView
                   ref={commentWebViewRef}
                   source={{ uri: `https://www.youtube.com/watch?v=${videoId}` }}
@@ -592,7 +604,7 @@ export default function PlayerScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* 2. Comments & Replies Modal (Fully in English with Clickable Avatars) */}
+      {/* 2. Comments & Replies Modal */}
       <Modal visible={showCommentModal} transparent animationType="slide" onRequestClose={() => setShowCommentModal(false)}>
         <View style={styles.bottomSheetOverlayFull}>
           <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowCommentModal(false)} />
@@ -622,7 +634,6 @@ export default function PlayerScreen({ route, navigation }) {
                         renderItem={({item}) => (
                             <View style={styles.commentContainerBlock}>
                                 <View style={styles.commentItem}>
-                                    {/* 🎯 ক্লিকেবল চ্যানেল প্রোফাইল */}
                                     <TouchableOpacity onPress={() => navigateToChannel(item.author, item.avatar, item.channelId)}>
                                         <Image source={{uri: item.avatar}} style={styles.commentAvatar} />
                                     </TouchableOpacity>
@@ -651,12 +662,10 @@ export default function PlayerScreen({ route, navigation }) {
                                     </View>
                                 </View>
 
-                                {/* Nested Replies */}
                                 {commentReplies[item.id] && (
                                     <View style={styles.nestedRepliesBox}>
                                         {commentReplies[item.id].map((reply, rIdx) => (
                                             <View key={reply.id + rIdx} style={styles.replyItemRow}>
-                                                {/* 🎯 ক্লিকেবল রিপ্লাই প্রোফাইল */}
                                                 <TouchableOpacity onPress={() => navigateToChannel(reply.author, reply.avatar, reply.channelId)}>
                                                     <Image source={{uri: reply.avatar}} style={styles.replyAvatar} />
                                                 </TouchableOpacity>
@@ -682,7 +691,6 @@ export default function PlayerScreen({ route, navigation }) {
                 )}
             </View>
 
-            {/* Smart Input Engine */}
             {replyingToCommentId && (
                 <View style={styles.replyIndicatorBar}>
                     <Text style={styles.replyIndicatorText}>Replying to {replyAuthorName}...</Text>
