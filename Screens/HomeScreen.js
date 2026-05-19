@@ -65,7 +65,8 @@ useEffect(() => {
   }, [route?.params]);
 useEffect(() => {
     if (activeQuery) fetchRealVideos(activeQuery, true);
-    if (Platform.OS === 'android') NavigationBar.setVisibilityAsync("hidden");
+    // [FIXED]: নিচের লাইনটি রিমুভ করা হলো যাতে ব্যাক বাটন হাইড না হয়
+    // if (Platform.OS === 'android') NavigationBar.setVisibilityAsync("hidden");
   }, [activeQuery]);
 const handleRefresh = async () => {
     setRefreshing(true);
@@ -161,14 +162,14 @@ return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
 
-      {activeTab !== 'Shorts' && activeTab !== 'ME' && activeTab !== 'Settings' && (
+      {/* [FIXED]: এখন শুধু হোম স্ক্রিনেই সার্চ বার ও লোগো দেখাবে */}
+      {activeTab === 'Home' && (
         <View style={styles.header}>
           <View style={styles.logoContainer}>
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
              <Text style={styles.logoText}>MyTube</Text>
           </View>
      
-      {/* [FIXED]: এখানে 'Search' এর পরিবর্তে 'SearchSettings' দেওয়া হয়েছে */}
           <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
             <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>{searchQuery || "সার্চ..."}</Text>
             <Ionicons name="search" size={18} color="#AAA" />
