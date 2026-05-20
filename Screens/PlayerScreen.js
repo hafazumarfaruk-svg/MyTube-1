@@ -9,7 +9,6 @@ import * as NavigationBar from 'expo-navigation-bar';
 const { width, height } = Dimensions.get('window');
 const PLAYER_HEIGHT = (width * 9) / 16; 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
-const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
@@ -33,7 +32,7 @@ export default function PlayerScreen({ route, navigation }) {
   // Live Data States (Server Fetched)
   const [liveAvatar, setLiveAvatar] = useState(null);
   const [description, setDescription] = useState('');
-  const [isLinkLoading, setIsLinkLoading] = useState(false); // 🚀 লিংক লোডিং স্টেট
+  const [isLinkLoading, setIsLinkLoading] = useState(false); 
   
   // Comments States
   const [comments, setComments] = useState([]);
@@ -116,77 +115,34 @@ export default function PlayerScreen({ route, navigation }) {
     DeviceEventEmitter.emit('toggleAudioMode', newMode);
   };
 
-  // 🎯 হোম স্ক্রিনের মতো রিয়েল ডাটা ফেচিং লজিক
+  // 🎯 🚀 [FIXED]: সার্ভার ড্রাইভেন ইউআরএল রেজোলিউশন লজিক (মাখনের মতো লোড হবে)
   const handleLinkPress = async (url) => {
-      const cleanUrl = url.replace(/\s/g, ''); // স্পেস রিমুভ করা
-      const videoIdMatch = cleanUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?]{11})/);
-
-      if (videoIdMatch && videoIdMatch[1]) {
-          const targetId = videoIdMatch[1];
-          setShowDescModal(false); 
-          setIsLinkLoading(true); // লোডিং শুরু
+      setShowDescModal(false); 
+      setIsLinkLoading(true); // ফুল স্ক্রিন লোডার ওপেন
+      
+      try {
+          // পুরো লিংকটি সরাসরি সার্ভারের কাছে পাঠিয়ে দেওয়া হলো
+          const response = await fetch(`${MY_API_SERVER}/api/resolve-url?url=${encodeURIComponent(url)}`);
+          const data = await response.json();
           
-          try {
-              // 🚀 HomeScreen.js এর মতো ইউটিউব থেকে সরাসরি ভিডিওর সম্পূর্ণ ডেটা স্ক্র্যাপ করা হচ্ছে
-              const response = await fetch(`https://www.youtube.com/results?search_query=${targetId}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
-              const htmlText = await response.text();
-              const match = htmlText.match(/ytInitialData\s*=\s*({.+?});/) || htmlText.match(/var ytInitialData = (.*?);<\/script>/);
-              
-              if (match && match[1]) {
-                  const jsonData = JSON.parse(match[1]);
-                  let foundVideo = null;
-                  
-                  const extractNodes = (node) => {
-                      if (foundVideo) return;
-                      if (Array.isArray(node)) node.forEach(extractNodes);
-                      else if (node && typeof node === 'object') {
-                          if (node.videoRenderer && node.videoRenderer.videoId === targetId) {
-                              foundVideo = node.videoRenderer;
-                          } else {
-                              Object.values(node).forEach(extractNodes);
-                          }
-                      }
-                  };
-                  extractNodes(jsonData);
-
-                  if (foundVideo) {
-                      const avatarUrl = foundVideo.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url;
-                      const fullVideoData = {
-                          id: foundVideo.videoId,
-                          title: foundVideo.title?.runs?.[0]?.text || 'No Title',
-                          channel: foundVideo.ownerText?.runs?.[0]?.text || 'Channel',
-                          views: foundVideo.shortViewCountText?.simpleText || 'N/A',
-                          duration: foundVideo.lengthText?.simpleText || '',
-                          publishedTime: foundVideo.publishedTimeText?.simpleText || '',
-                          thumbnail: `https://i.ytimg.com/vi/${foundVideo.videoId}/hqdefault.jpg`,
-                          avatar: avatarUrl ? (avatarUrl.startsWith('//') ? 'https:' + avatarUrl : avatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg',
-                          type: 'video'
-                      };
-                      
-                      setIsLinkLoading(false);
-                      // 🎯 সম্পূর্ণ ডাটা দিয়ে পুশ করা হচ্ছে (গ্লোবাল প্লেয়ার আর ক্র্যাশ করবে না)
-                      navigation.push('Player', { videoId: targetId, videoData: fullVideoData });
-                      return;
-                  }
-              }
-          } catch (e) {
-              console.log("Error fetching link data", e);
+          if (data.success && data.videoData) {
+              setIsLinkLoading(false);
+              // গ্লোবাল ভিডিও ও প্লেয়ার স্ক্রিনকে হোম স্ক্রিনের মতোই ট্র্রিগার করে একসাথে লোড করা হচ্ছে
+              navigation.push('Player', { videoId: data.videoData.id, videoData: data.videoData });
+          } else {
+              setIsLinkLoading(false);
+              // ইউটিউব লিংক না হলে সাধারণ ব্রাউজারে ওপেন করবে
+              Linking.openURL(url.replace(/\s/g, '')).catch(err => console.error(err));
           }
-          
+      } catch (e) {
           setIsLinkLoading(false);
-          // ডাটা না পেলে ফলব্যাক হিসেবে সার্চ সেটিংসে পাঠাবে
-          navigation.navigate('searchsettings', { initialSearch: targetId });
-          
-      } else if (cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be')) {
-          setShowDescModal(false); 
-          navigation.navigate('searchsettings', { initialSearch: cleanUrl });
-      } else {
-          Linking.openURL(cleanUrl).catch(err => console.error(err));
+          Alert.alert("Connection Error", "Could not connect to MyTube server.");
       }
   };
 
   const renderDescriptionWithLinks = (text) => {
       if (!text) return null;
+      // স্পেস হ্যান্ডলিং রেজেক্স
       const urlRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)[^\s]*\s*\?v=[^\s]+|https?:\/\/[^\s]+)/g;
       const parts = text.split(urlRegex);
 
@@ -254,7 +210,7 @@ export default function PlayerScreen({ route, navigation }) {
 
   const navigateToChannel = (channelName, channelAvatar, channelId) => {
       setShowCommentModal(false); 
-      navigation.navigate('Channel', { channelName: channelName, channelAvatar: channelAvatar, channelId: channelId });
+      navigation.navigate('Channel', { channelName, channelAvatar, channelId });
   };
 
   const handleDownloadExecute = async (item) => {
@@ -310,7 +266,7 @@ export default function PlayerScreen({ route, navigation }) {
         return;
       }
       let searchQuery = "trending bangla";
-      if (videoData?.title) { searchQuery = videoData.title.split(' ').slice(0, 4).join(' '); }
+      if (videoData?.title) searchQuery = videoData.title.split(' ').slice(0, 4).join(' ');
       const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`);
       const text = await response.text();
       const match = text.match(/var ytInitialData = (.*?);<\/script>/);
@@ -323,7 +279,7 @@ export default function PlayerScreen({ route, navigation }) {
           if (node.videoRenderer && node.videoRenderer.videoId !== videoId) {
             extractedVids.push({ 
               id: node.videoRenderer.videoId, title: node.videoRenderer.title?.runs?.[0]?.text, channel: node.videoRenderer.ownerText?.runs?.[0]?.text, 
-              views: node.videoRenderer.viewCountText?.simpleText || node.videoRenderer.shortViewCountText?.simpleText || '', 
+              views: node.videoRenderer.viewCountText?.simpleText || '', 
               publishedTime: node.videoRenderer.publishedTimeText?.simpleText || '', duration: node.videoRenderer.lengthText?.simpleText || '',
               thumbnail: `https://i.ytimg.com/vi/${node.videoRenderer.videoId}/hqdefault.jpg`,
               avatar: node.videoRenderer.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url
@@ -367,7 +323,6 @@ export default function PlayerScreen({ route, navigation }) {
       <Text style={styles.mainTitle}>{videoData?.title}</Text>
       <Text style={styles.mainViews}>{videoData?.views} {videoData?.publishedTime ? `• ${videoData.publishedTime}` : ''}</Text>
 
-      {/* ট্রান্সপারেন্ট অ্যাকশন বাটনসমূহ */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRowContainer}>
           <TouchableOpacity style={styles.actionPill} onPress={loadDescription}>
               <Ionicons name="document-text-outline" size={18} color="#FFF" />
@@ -416,11 +371,11 @@ export default function PlayerScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar hidden={true} /> 
 
-      {/* 🚀 স্ক্র্যাপ করার সময় ইউজারকে লোডিং দেখানোর ওভারলে */}
+      {/* 🚀 সার্ভার থ্রু লোডিং ওভারলে স্ক্রিন */}
       {isLinkLoading && (
         <View style={styles.linkLoadingOverlay}>
             <ActivityIndicator size="large" color="#00BFA5" />
-            <Text style={styles.linkLoadingText}>Fetching video data...</Text>
+            <Text style={styles.linkLoadingText}>Fetching video details via MyTube Server...</Text>
         </View>
       )}
 
@@ -758,6 +713,6 @@ const styles = StyleSheet.create({
     qualitySubText: { color: '#888', fontSize: 10, marginTop: 2 }, 
     downloadIconBtn: { padding: 5 },
 
-    linkLoadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-    linkLoadingText: { color: '#FFF', fontSize: 14, fontWeight: 'bold', marginTop: 10 }
+    linkLoadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+    linkLoadingText: { color: '#00BFA5', fontSize: 14, fontWeight: 'bold', marginTop: 10 }
 });
