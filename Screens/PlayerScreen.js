@@ -1,20 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, Text, ActivityIndicator, TouchableOpacity, FlatList, Image, Dimensions, StatusBar, SafeAreaView, ScrollView, Modal, Alert, Platform, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet, Text, ActivityIndicator, TouchableOpacity, FlatList, Image, Dimensions, StatusBar, SafeAreaView, ScrollView, Modal, Alert, Platform, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import * as NavigationBar from 'expo-navigation-bar';
-import { WebView } from 'react-native-webview'; 
 
 const { width, height } = Dimensions.get('window');
 const PLAYER_HEIGHT = (width * 9) / 16; 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
-const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
-  const commentWebViewRef = useRef(null);
 
   const [relatedVideos, setRelatedVideos] = useState([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -25,7 +22,6 @@ export default function PlayerScreen({ route, navigation }) {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showDescModal, setShowDescModal] = useState(false);
   const [showCommentModal, setShowCommentModal] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
 
   // Download States
   const [downloadStep, setDownloadStep] = useState('fetching'); 
@@ -41,15 +37,9 @@ export default function PlayerScreen({ route, navigation }) {
   const [commentNextToken, setCommentNextToken] = useState(null);
   const [isMoreCommentsLoading, setIsMoreCommentsLoading] = useState(false);
   
+  // Replies State
   const [commentReplies, setCommentReplies] = useState({}); 
   const [loadingReplyId, setLoadingReplyId] = useState(null);
-
-  // Comment & Auth States
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [commentInputText, setCommentInputText] = useState('');
-  const [replyingToCommentId, setReplyingToCommentId] = useState(null); 
-  const [replyAuthorName, setReplyAuthorName] = useState('');
-  const [loadWebViewEngine, setLoadWebViewEngine] = useState(false); 
 
   const [isAudioMode, setIsAudioMode] = useState(videoData?.type === 'audio');
 
@@ -67,7 +57,6 @@ export default function PlayerScreen({ route, navigation }) {
 
   useEffect(() => {
     checkSubscriptionStatus();
-    checkLoginStatus();
     fetchRelatedVideos(false);
 
     if (videoId && videoData) {
@@ -80,7 +69,6 @@ export default function PlayerScreen({ route, navigation }) {
         setCommentReplies({});
         setCommentNextToken(null);
         setIsCommentsLoading(false);
-        setLoadWebViewEngine(false); 
 
         const timer = setTimeout(() => {
             setIsInitialLoading(false);
@@ -96,11 +84,6 @@ export default function PlayerScreen({ route, navigation }) {
       const parsedSubs = subs ? JSON.parse(subs) : [];
       setIsSubscribed(parsedSubs.some(s => s.name === videoData.channel));
     } catch (e) {}
-  };
-
-  const checkLoginStatus = async () => {
-    const loginFlag = await AsyncStorage.getItem('mytube_is_logged_in');
-    setIsLoggedIn(loginFlag === 'true');
   };
 
   const toggleSubscription = async () => {
@@ -222,101 +205,6 @@ export default function PlayerScreen({ route, navigation }) {
           }
       } catch (error) { }
       setLoadingReplyId(null);
-  };
-
-  const handleInputInteraction = () => {
-      if (!isLoggedIn) {
-          setShowLoginModal(true);
-      } else {
-          setLoadWebViewEngine(true);
-      }
-  };
-
-  // 🎯 সুপার-অপ্টিমাইজড কমেন্ট সাবমিট লজিক
-  const submitCommentOrReply = () => {
-      if (!commentInputText.trim()) return;
-      setLoadWebViewEngine(true);
-      
-      let safeText = commentInputText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-      if (replyingToCommentId) {
-          let cleanName = replyAuthorName.startsWith('@') ? replyAuthorName : `@${replyAuthorName}`;
-          safeText = `${cleanName} ` + safeText; 
-      }
-      
-      // 🚀 Auto-Scrolling ও Intersection Observer বাইপাস স্ক্রিপ্ট
-      const runScript = `
-        try {
-            var attempt = 0;
-            var scrollInterval = setInterval(function() {
-                // পেজের নিচে স্ক্রল করে ইউটিউবকে কমেন্ট বক্স লোড করতে বাধ্য করা হচ্ছে
-                window.scrollBy(0, window.innerHeight || 1000);
-                
-                var placeholder = document.querySelector('ytd-comment-simplebox-renderer #placeholder-area') || document.querySelector('ytd-comments-header-renderer #simplebox-placeholder');
-                
-                if (placeholder) {
-                    clearInterval(scrollInterval);
-                    placeholder.click(); 
-                    
-                    setTimeout(function() {
-                        var inputDiv = document.querySelector('ytd-comment-simplebox-renderer #contenteditable-root') || document.querySelector('#contenteditable-root');
-                        if (inputDiv) {
-                            inputDiv.focus();
-                            inputDiv.innerText = "${safeText}";
-                            inputDiv.dispatchEvent(new Event('input', { bubbles: true }));
-                            
-                            setTimeout(function() {
-                                var submitBtn = document.querySelector('#submit-button') || document.querySelector('ytd-commentbox #submit-button');
-                                if (submitBtn) {
-                                    submitBtn.removeAttribute('disabled');
-                                    submitBtn.click();
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'POST_SUCCESS' }));
-                                } else {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
-                                }
-                            }, 1500);
-                        } else {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
-                        }
-                    }, 1500);
-                } else if (attempt > 15) {
-                    clearInterval(scrollInterval);
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
-                }
-                attempt++;
-            }, 1000);
-        } catch(e) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
-        }
-        true;
-      `;
-      
-      if (commentWebViewRef.current) {
-          commentWebViewRef.current.injectJavaScript(runScript);
-      }
-  };
-
-  const handleEngineMessage = (event) => {
-      try {
-          const parsed = JSON.parse(event.nativeEvent.data);
-          if (parsed.type === 'POST_SUCCESS') {
-              Alert.alert("Success", "Comment posted successfully!");
-              setCommentInputText('');
-              setReplyingToCommentId(null);
-              setComments([]);
-              loadComments();
-          } else if (parsed.type === 'ERROR') {
-              Alert.alert("Notice", "Preparing comment engine. Please tap send again.");
-          }
-      } catch (e) {}
-  };
-
-  const handleLoginNavigationChange = (navState) => {
-      if (navState.url.includes('youtube.com') && !navState.url.includes('ServiceLogin') && !navState.url.includes('signin')) {
-          AsyncStorage.setItem('mytube_is_logged_in', 'true');
-          setIsLoggedIn(true);
-          setShowLoginModal(false);
-          setLoadWebViewEngine(true);
-      }
   };
 
   const navigateToChannel = (channelName, channelAvatar, channelId) => {
@@ -498,21 +386,6 @@ export default function PlayerScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar hidden={true} /> 
 
-      {/* 🚀 অফ-স্ক্রিন রেন্ডারিং ইঞ্জিন: WebView এর সাইজ ফুল করা হয়েছে কিন্তু স্ক্রিনের বাইরে রাখা হয়েছে যাতে ডাটা ঠিকমত লোড হয় */}
-      {loadWebViewEngine && videoId && !videoData.localUri && (
-          <View style={{ position: 'absolute', top: -10000, left: -10000, width: Dimensions.get('window').width, height: Dimensions.get('window').height, overflow: 'hidden' }}>
-              <WebView
-                  ref={commentWebViewRef}
-                  source={{ uri: `https://www.youtube.com/watch?v=${videoId}` }}
-                  userAgent={DESKTOP_AGENT}
-                  onMessage={handleEngineMessage}
-                  javaScriptEnabled={true}
-                  sharedCookiesEnabled={true}
-                  thirdPartyCookiesEnabled={true}
-              />
-          </View>
-      )}
-
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 10}}>
@@ -604,7 +477,7 @@ export default function PlayerScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* 2. Comments & Replies Modal */}
+      {/* 2. Comments & Replies Modal (Viewing Only) */}
       <Modal visible={showCommentModal} transparent animationType="slide" onRequestClose={() => setShowCommentModal(false)}>
         <View style={styles.bottomSheetOverlayFull}>
           <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowCommentModal(false)} />
@@ -654,10 +527,6 @@ export default function PlayerScreen({ route, navigation }) {
                                                     </Text>
                                                 </TouchableOpacity>
                                             )}
-                                            <TouchableOpacity style={[styles.actionBtnItem, {marginLeft: 15}]} onPress={() => { handleInputInteraction(); setReplyingToCommentId(item.id); setReplyAuthorName(item.author); }}>
-                                                <Ionicons name="arrow-undo-outline" size={14} color="#AAA" />
-                                                <Text style={[styles.actionBtnText, {color: '#AAA'}]}>Reply</Text>
-                                            </TouchableOpacity>
                                         </View>
                                     </View>
                                 </View>
@@ -688,30 +557,6 @@ export default function PlayerScreen({ route, navigation }) {
                         <Ionicons name="chatbubble-ellipses-outline" size={60} color="#444" />
                         <Text style={styles.commentPlaceholderText}>No comments found</Text>
                     </View>
-                )}
-            </View>
-
-            {replyingToCommentId && (
-                <View style={styles.replyIndicatorBar}>
-                    <Text style={styles.replyIndicatorText}>Replying to {replyAuthorName}...</Text>
-                    <TouchableOpacity onPress={() => { setReplyingToCommentId(null); setReplyAuthorName(''); }}>
-                        <Ionicons name="close-circle" size={18} color="#FF5252" />
-                    </TouchableOpacity>
-                </View>
-            )}
-            <View style={styles.nativeInputWrapperRow}>
-                <TextInput 
-                    style={styles.nativeInputField}
-                    placeholder={!isLoggedIn ? "🔐 Tap here to login & comment..." : replyingToCommentId ? "Add a reply..." : "Add a comment..."}
-                    placeholderTextColor="#666"
-                    value={commentInputText}
-                    onChangeText={setCommentInputText}
-                    onFocus={handleInputInteraction}
-                />
-                {isLoggedIn && commentInputText.trim().length > 0 && (
-                    <TouchableOpacity style={styles.sendIconBtn} onPress={submitCommentOrReply}>
-                        <Ionicons name="send" size={20} color="#00BFA5" />
-                    </TouchableOpacity>
                 )}
             </View>
           </View>
@@ -769,27 +614,6 @@ export default function PlayerScreen({ route, navigation }) {
             )}
           </View>
         </View>
-      </Modal>
-
-      {/* 🔐 4. Google Login Modal */}
-      <Modal visible={showLoginModal} animationType="fade" onRequestClose={() => setShowLoginModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#121212' }}>
-              <View style={styles.loginModalHeader}>
-                  <TouchableOpacity onPress={() => setShowLoginModal(false)} style={styles.loginCloseClick}>
-                      <Ionicons name="close" size={24} color="#FFF" />
-                      <Text style={{color: '#FFF', fontSize: 16, marginLeft: 10, fontWeight: 'bold'}}>Cancel Sign-In</Text>
-                  </TouchableOpacity>
-              </View>
-              <WebView 
-                  source={{ uri: 'https://accounts.google.com/ServiceLogin?service=youtube' }}
-                  userAgent={DESKTOP_AGENT}
-                  onNavigationStateChange={handleLoginNavigationChange}
-                  javaScriptEnabled={true}
-                  domStorageEnabled={true}
-                  sharedCookiesEnabled={true}
-                  thirdPartyCookiesEnabled={true}
-              />
-          </SafeAreaView>
       </Modal>
 
     </SafeAreaView>
@@ -850,6 +674,7 @@ const styles = StyleSheet.create({
     descMetaRow: { flexDirection: 'row', marginBottom: 10 },
     descMetaText: { color: '#AAA', fontSize: 13, marginRight: 15, fontWeight: 'bold' },
     descText: { color: '#CCC', fontSize: 14, lineHeight: 22 },
+    clickableLink: { color: '#00BFA5', textDecorationLine: 'underline', fontWeight: 'bold' },
 
     commentContainerBlock: { borderBottomWidth: 1, borderBottomColor: '#2A2A2A', paddingVertical: 6 },
     commentItem: { flexDirection: 'row', paddingHorizontal: 5, marginTop: 6 },
@@ -867,12 +692,6 @@ const styles = StyleSheet.create({
     replyAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 10, backgroundColor: '#333' },
     replyAuthor: { color: '#999', fontSize: 12, fontWeight: 'bold' },
     replyText: { color: '#DDD', fontSize: 13, lineHeight: 18, marginTop: 1 },
-
-    replyIndicatorBar: { flexDirection: 'row', backgroundColor: '#2C1E1E', padding: 8, justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#442222' },
-    replyIndicatorText: { color: '#FF8A80', fontSize: 12, fontWeight: '500' },
-    nativeInputWrapperRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', padding: 10, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
-    nativeInputField: { flex: 1, backgroundColor: '#252525', borderRadius: 20, color: '#FFF', paddingHorizontal: 15, height: 40, fontSize: 14 },
-    sendIconBtn: { marginLeft: 12, padding: 4 },
 
     commentPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 30 },
     commentPlaceholderText: { color: '#AAA', fontSize: 16, marginTop: 15 },
@@ -899,8 +718,5 @@ const styles = StyleSheet.create({
     qualityIconBg: { backgroundColor: 'rgba(0, 191, 165, 0.1)', padding: 8, borderRadius: 10 },
     qualityText: { color: '#FFF', fontSize: 14, fontWeight: 'bold' }, 
     qualitySubText: { color: '#888', fontSize: 10, marginTop: 2 }, 
-    downloadIconBtn: { padding: 5 },
-
-    loginModalHeader: { height: 50, backgroundColor: '#1F1F1F', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15 },
-    loginCloseClick: { flexDirection: 'row', alignItems: 'center', flex: 1 }
+    downloadIconBtn: { padding: 5 }
 });
