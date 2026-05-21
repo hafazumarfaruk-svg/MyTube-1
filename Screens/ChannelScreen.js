@@ -33,7 +33,6 @@ export default function ChannelScreen() {
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
 
-  // 🎯 ব্যানার এবং লোগো লোডিংয়ের স্টেট
   const [channelBanner, setChannelBanner] = useState(null);
   const [isBannerLoaded, setIsBannerLoaded] = useState(false);
 
@@ -56,7 +55,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার
+  // 🧠 আপডেটেড স্মার্ট স্ক্যানার (পুরাতন ও নতুন ইউটিউব আর্কিটেকচার সাপোর্টেড)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -65,10 +64,12 @@ export default function ChannelScreen() {
       const { node, currentTitle } = stack.pop();
 
       let newTitle = currentTitle;
+      
       if (node && typeof node === 'object') {
         if (node.title?.runs?.[0]?.text) newTitle = node.title.runs[0].text;
         else if (node.title?.simpleText) newTitle = node.title.simpleText;
         else if (node.headline?.simpleText) newTitle = node.headline.simpleText;
+        else if (node.title?.content) newTitle = node.title.content; 
       }
 
       if (Array.isArray(node)) {
@@ -81,14 +82,24 @@ export default function ChannelScreen() {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        const hasVideoId = !!node.videoId;
-        if (hasVideoId && !seenIds.has(node.videoId)) {
-          seenIds.add(node.videoId);
-          const vId = node.videoId;
+        const extractedId = node.videoId || 
+                           (node.contentId && typeof node.contentId === 'string' && node.contentId.length === 11 ? node.contentId : null);
 
-          const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
-          const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
-          const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
+        if (extractedId && !seenIds.has(extractedId)) {
+          seenIds.add(extractedId);
+          const vId = extractedId;
+
+          const duration = node.lengthText?.simpleText || 
+                           node.lengthText?.runs?.[0]?.text || 
+                           node.thumbnailOverlays?.[0]?.thumbnailOverlayTimeStatusRenderer?.text?.simpleText || '';
+                           
+          const publishedTime = node.publishedTimeText?.simpleText || 
+                                node.publishedTimeText?.runs?.[0]?.text || '';
+                                
+          const views = node.viewCountText?.simpleText || 
+                        node.viewCountText?.runs?.[0]?.text || 
+                        node.videoMetaBlock?.metaInfo?.[0] || ''; 
+                        
           const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
 
           const thumbnailUrl = thumbQuality === 'Data Saver' 
@@ -104,7 +115,7 @@ export default function ChannelScreen() {
             title: String(newTitle),
             value: videoUrl,
             channel: channelName,
-            avatar: channelAvatar, // 🎯 ডেটার ভেতরে লোগো যুক্ত করা হলো
+            avatar: channelAvatar, 
             duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
             publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
             views: views,
@@ -131,7 +142,6 @@ export default function ChannelScreen() {
     return null;
   };
 
-  // 🎯 ব্যানার লিংক খোঁজার শক্তিশালী ডিপ-স্ক্যানার
   const findBannerUrl = (data) => {
     let url = null;
     const search = (obj) => {
@@ -365,14 +375,12 @@ export default function ChannelScreen() {
     } catch(e) {}
   };
 
-  // 🎯 ভিডিও নেভিগেশনে লোগো (channelAvatar) পাস করা হলো
   const handleVideoPress = (item) => {
     const videoInfo = { ...item, avatar: channelAvatar };
     DeviceEventEmitter.emit('playVideo', { videoId: item.id, videoData: videoInfo, channelAvatar: channelAvatar });
     navigation.navigate('Player', { videoId: item.id, videoData: videoInfo, channelAvatar: channelAvatar });
   };
 
-  // 🎯 Shorts নেভিগেশনেও লোগো (channelAvatar) পাস করা হলো
   const handleShortPress = (item, index) => {
     const videoInfo = { ...item, avatar: channelAvatar };
     navigation.navigate('Shorts', { 
@@ -401,7 +409,6 @@ export default function ChannelScreen() {
             {item.views && item.publishedTime ? ' • ' : ''}
             {item.publishedTime ? `${item.publishedTime}` : ''}
           </Text>
-          {/* 🎯 সবুজ লিংকটি এখান থেকে মুছে দেওয়া হয়েছে */}
         </View>
       </TouchableOpacity>
     );
@@ -549,7 +556,7 @@ const styles = StyleSheet.create({
   durationBadge: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.8)', color: '#FFF', fontSize: 11, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, fontWeight: 'bold' },
   infoWrapper: { flex: 1, marginLeft: 12, justifyContent: 'center' },
   vidmateTitle: { color: '#FFF', fontSize: 14, fontWeight: 'bold', marginBottom: 6, lineHeight: 20 },
-  vidmateMeta: { color: '#AAA', fontSize: 12, marginBottom: 0 }, // 🎯 লিংক সরানোর পর স্পেসিং ঠিক রাখতে মার্জিন জিরো করা হলো
+  vidmateMeta: { color: '#AAA', fontSize: 12, marginBottom: 0 }, 
 
   shortsColumnWrapper: { 
     justifyContent: 'flex-start', 
