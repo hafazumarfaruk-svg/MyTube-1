@@ -56,7 +56,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 আল্ট্রা-স্মার্ট স্ক্যানার (লগ ফিক্স এবং এক্স্যাক্ট ডাটা এক্সট্রাক্টর)
+  // 🧠 টার্গেটেড স্ক্যানার (ফেইক ট্র্যাকিং লিংক ইগনোর করবে, শুধু আসল ভিডিও ধরবে)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     try {
       const stack = [rootNode];
@@ -67,110 +67,108 @@ export default function ChannelScreen() {
 
         if (!node || typeof node !== 'object') continue;
 
-        if (Array.isArray(node)) {
-          for (let i = 0; i < node.length; i++) {
-            if (node[i] && typeof node[i] === 'object') stack.push(node[i]);
-          }
-          continue;
-        }
-
         if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        // 🎯 ১. ভিডিও আইডি বের করা
-        let vId = node.videoId || 
-                  node.contentId || 
-                  (node.entityId && node.entityId.startsWith('shorts-') ? node.entityId.replace('shorts-', '') : null) ||
-                  node.onTap?.innertubeCommand?.watchEndpoint?.videoId || 
-                  node.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId;
+        // 🎯 শুধু এই নির্দিষ্ট অবজেক্টগুলোতেই ইউটিউব আসল ডাটা রাখে
+        const renderer = node.videoRenderer || 
+                         node.gridVideoRenderer || 
+                         node.compactVideoRenderer || 
+                         node.reelItemRenderer || 
+                         node.shortsLockupViewModel || 
+                         node.lockupViewModel;
 
-        // 🎯 ২. নিশ্চিত হওয়া যে এটি একটি 'ভিজ্যুয়াল কার্ড', কোনো ব্যাকগ্রাউন্ড লিংক নয়!
-        let hasMetadata = !!(node.title || node.headline || node.metadata || node.overlayMetadata || node.viewCountText || node.publishedTimeText);
-
-        if (vId && hasMetadata && !seenIds.has(vId)) {
-           seenIds.add(vId);
-
-           // 🎯 টাইটেল বের করা
-           let exactTitle = node.title?.runs?.[0]?.text || 
-                            node.title?.simpleText || 
-                            node.headline?.runs?.[0]?.text || 
-                            node.headline?.simpleText || 
-                            node.title?.content || 
-                            node.metadata?.lockupMetadataViewModel?.title?.content ||
-                            node.overlayMetadata?.primaryText?.content ||
-                            'Unknown Title';
-
-           // 🎯 ডিউরেশন (সময়কাল) বের করা
-           let duration = node.lengthText?.simpleText || 
-                          node.lengthText?.runs?.[0]?.text || 
-                          node.contentImage?.thumbnailViewModel?.overlays?.[0]?.thumbnailOverlayTimeStatusRenderer?.text?.simpleText || 
-                          '';
-
-           if (!duration && node.thumbnailOverlays) {
-              const timeOverlay = node.thumbnailOverlays.find(o => o.thumbnailOverlayTimeStatusRenderer);
-              if (timeOverlay) duration = timeOverlay.thumbnailOverlayTimeStatusRenderer.text?.simpleText || '';
-           }
-
-           // 🎯 ভিউজ এবং পাবলিশ টাইম বের করা
-           let views = node.viewCountText?.simpleText || 
-                       node.viewCountText?.runs?.[0]?.text || 
-                       node.shortViewCountText?.simpleText || 
-                       node.shortViewCountText?.runs?.[0]?.text || 
-                       node.overlayMetadata?.secondaryText?.content ||
-                       '';
-                       
-           let publishedTime = node.publishedTimeText?.simpleText || 
-                               node.publishedTimeText?.runs?.[0]?.text || 
-                               '';
-
-           // 🎯 ইউটিউবের নতুন ডিজাইনের মেটাডাটা ("15K views • 2 days ago") ফিল্টার করা
-           const metaContent = node.metadata?.lockupMetadataViewModel?.metadata?.content;
-           if (metaContent && typeof metaContent === 'string') {
-              const parts = metaContent.split('•').map(p => p.trim());
-              if (parts.length > 1) {
-                if (!views) views = parts[0]; 
-                if (!publishedTime) publishedTime = parts[1]; 
-              } else if (parts.length === 1) {
-                if (parts[0].toLowerCase().includes('view') || parts[0].includes('ভিজ্যুয়াল')) {
-                   if (!views) views = parts[0];
-                } else {
-                   if (!publishedTime) publishedTime = parts[0];
-                }
-              }
-           }
-
-           let isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"') || (metaContent && metaContent.includes('watching'));
-
-           const thumbnailUrl = thumbQuality === 'Data Saver' 
-                ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
-                : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
-
-           const videoUrl = tabType === 'Shorts' 
-                ? `https://www.youtube.com/shorts/${vId}` 
-                : `https://www.youtube.com/watch?v=${vId}`;
-
-           categorizedData[tabType].unshift({
-              id: String(vId),
-              title: String(exactTitle),
-              value: videoUrl,
-              channel: channelName,
-              avatar: channelAvatar, 
-              duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
-              publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
-              views: views,
-              thumbnail: thumbnailUrl,
-              isLive: isLive
-           });
+        if (renderer) {
+           let vId = renderer.videoId || renderer.contentId;
            
-           // যেহেতু আসল ভিডিও কার্ডটি পেয়ে গেছি, এর ভেতরের হাবিজাবি কমান্ড আর স্ক্যান করার দরকার নেই
-           continue; 
+           if (vId && !seenIds.has(vId)) {
+              seenIds.add(vId);
+
+              // 🎯 টাইটেল বের করা
+              let exactTitle = renderer.title?.runs?.[0]?.text || 
+                               renderer.title?.simpleText || 
+                               renderer.headline?.runs?.[0]?.text || 
+                               renderer.headline?.simpleText || 
+                               renderer.title?.content || 
+                               renderer.metadata?.lockupMetadataViewModel?.title?.content ||
+                               renderer.overlayMetadata?.primaryText?.content ||
+                               'Unknown Title';
+
+              // 🎯 ডিউরেশন বের করা
+              let duration = renderer.lengthText?.simpleText || 
+                             renderer.lengthText?.runs?.[0]?.text || 
+                             renderer.contentImage?.thumbnailViewModel?.overlays?.[0]?.thumbnailOverlayTimeStatusRenderer?.text?.simpleText || 
+                             '';
+
+              if (!duration && renderer.thumbnailOverlays) {
+                 const timeOverlay = renderer.thumbnailOverlays.find(o => o.thumbnailOverlayTimeStatusRenderer);
+                 if (timeOverlay) duration = timeOverlay.thumbnailOverlayTimeStatusRenderer.text?.simpleText || '';
+              }
+
+              // 🎯 ভিউজ এবং সময় বের করা
+              let views = renderer.viewCountText?.simpleText || 
+                          renderer.viewCountText?.runs?.[0]?.text || 
+                          renderer.shortViewCountText?.simpleText || 
+                          renderer.shortViewCountText?.runs?.[0]?.text || 
+                          renderer.overlayMetadata?.secondaryText?.content ||
+                          '';
+                          
+              let publishedTime = renderer.publishedTimeText?.simpleText || 
+                                  renderer.publishedTimeText?.runs?.[0]?.text || 
+                                  '';
+
+              // নতুন ডিজাইনের ডাটা ব্রেকডাউন ("15K views • 2 days ago")
+              const metaContent = renderer.metadata?.lockupMetadataViewModel?.metadata?.content;
+              if (metaContent && typeof metaContent === 'string') {
+                 const parts = metaContent.split('•').map(p => p.trim());
+                 if (parts.length > 1) {
+                   if (!views) views = parts[0]; 
+                   if (!publishedTime) publishedTime = parts[1]; 
+                 } else if (parts.length === 1) {
+                   if (parts[0].toLowerCase().includes('view') || parts[0].includes('ভিজ্যুয়াল')) {
+                      if (!views) views = parts[0];
+                   } else {
+                      if (!publishedTime) publishedTime = parts[0];
+                   }
+                 }
+              }
+
+              let isLive = JSON.stringify(renderer).includes('"BADGE_STYLE_TYPE_LIVE_NOW"') || (metaContent && metaContent.includes('watching'));
+
+              const thumbnailUrl = thumbQuality === 'Data Saver' 
+                   ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
+                   : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
+              const videoUrl = tabType === 'Shorts' 
+                   ? `https://www.youtube.com/shorts/${vId}` 
+                   : `https://www.youtube.com/watch?v=${vId}`;
+
+              categorizedData[tabType].push({
+                 id: String(vId),
+                 title: String(exactTitle),
+                 value: videoUrl,
+                 channel: channelName,
+                 avatar: channelAvatar, 
+                 duration: duration || (tabType === 'Shorts' ? 'Short' : ''),
+                 publishedTime: publishedTime || (isLive ? 'Live Now' : ''),
+                 views: views,
+                 thumbnail: thumbnailUrl,
+                 isLive: isLive
+              });
+           }
         }
 
-        // ভেতরের অবজেক্টগুলো স্ক্যান করতে স্ট্যাকে ঢোকানো
-        const values = Object.values(node);
-        for (let i = 0; i < values.length; i++) {
-          if (values[i] && typeof values[i] === 'object') stack.push(values[i]);
+        // ভেতরের অবজেক্ট স্ক্যান করার জন্য স্ট্যাকে পুশ
+        if (Array.isArray(node)) {
+          for (let i = 0; i < node.length; i++) {
+            if (node[i] && typeof node[i] === 'object') stack.push(node[i]);
+          }
+        } else {
+          const values = Object.values(node);
+          for (let i = 0; i < values.length; i++) {
+            if (values[i] && typeof values[i] === 'object') stack.push(values[i]);
+          }
         }
       }
     } catch (error) {
