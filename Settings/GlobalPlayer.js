@@ -28,12 +28,12 @@ export default function GlobalPlayer() {
   const syncAudioRef = useRef(new Audio.Sound()); 
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
-  
+
   const scale = useRef(new Animated.Value(1)).current;
   const baseScaleRef = useRef(1);
   const initialDistanceRef = useRef(null);
   const isZoomingRef = useRef(false);
-  
+
   const lastTapRef = useRef({ time: 0, side: '' });
   const tapTimeoutRef = useRef(null);
   const isSlidingRef = useRef(false); 
@@ -42,7 +42,7 @@ export default function GlobalPlayer() {
   const [isFullscreen, setIsFullscreen] = useState(false); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  
+
   const [videoSource, setVideoSource] = useState(null); 
   const resumeTimeRef = useRef(0); 
 
@@ -57,17 +57,17 @@ export default function GlobalPlayer() {
 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
-  
+
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(1.0);
-  
+
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const isAudioModeRef = useRef(false);
   const streamModeRef = useRef('combined');
   const cachedAudioUrlRef = useRef(null); 
-  
+
   const isSyncingRef = useRef(false);
 
   const player = useVideoPlayer(videoSource, (p) => {
@@ -116,7 +116,7 @@ export default function GlobalPlayer() {
       if (!e.data.state) return;
       const routes = e.data.state.routes;
       const currentRoute = routes[routes.length - 1].name;
-      
+
       if (currentRoute !== 'Player' && currentRoute !== 'PlayerScreen') {
           setPlayerState((prev) => {
               if (prev === 'full' || prev === 'center' || prev === 'fullscreen') {
@@ -161,7 +161,8 @@ export default function GlobalPlayer() {
   }, [playerState, navigation, isFullscreen]);
 
   useEffect(() => {
-      Animated.spring(scale, { toValue: 1, useNativeDriver: false }).start();
+      // 🚨 অপটিমাইজেশন: useNativeDriver: true করা হয়েছে
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
       baseScaleRef.current = 1;
   }, [playerState]);
 
@@ -183,7 +184,6 @@ export default function GlobalPlayer() {
     } catch (error) { console.log(error); }
   };
 
-  // 🚨 ফিক্স ১: স্কিপ করার সময় কোনো await বা getStatusAsync রাখা হয়নি, যাতে অডিও একদম সাথে সাথে ফরোয়ার্ড হয় 🚨
   const syncAudioWithVideo = (targetPositionSeconds) => {
       isSyncingRef.current = true; 
       syncAudioRef.current.setPositionAsync(targetPositionSeconds * 1000).catch(()=>{});
@@ -202,16 +202,16 @@ export default function GlobalPlayer() {
       currentVideoIdRef.current = data.videoId;
       setVideoData(data.videoData);
       setPlayerState('full');
-      
+
       setStreamUrl(null);
       setVideoSource(null); 
       resumeTimeRef.current = 0; 
-      
+
       setFallbackData(null);
       setIsAudioMode(false);
       isAudioModeRef.current = false;
       cachedAudioUrlRef.current = null;
-      
+
       setCurrentTime(0);
       setBuffered(0);
       scale.setValue(1);
@@ -233,7 +233,7 @@ export default function GlobalPlayer() {
           resumeTimeRef.current = player ? player.currentTime : 0;
           setVideoSource(null); 
           setIsPlayingUI(false); 
-          
+
           let audioUrlToPlay = cachedAudioUrlRef.current;
 
           if (!audioUrlToPlay) {
@@ -308,7 +308,7 @@ export default function GlobalPlayer() {
       else if (qStr.includes('4K') || qStr.includes('2160')) reqQ = 2160;
       else if (qStr.includes('2K') || qStr.includes('1440')) reqQ = 1440;
       else reqQ = parseInt(qStr.replace(/\D/g, '')) || 720;
-      
+
       const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=${reqQ}&action=play`);
       const json = await res.json();
 
@@ -329,10 +329,10 @@ export default function GlobalPlayer() {
     setStreamMode(json.streamType || 'combined');
     streamModeRef.current = json.streamType || 'combined';
     cachedAudioUrlRef.current = json.audioUrl || null; 
-    
+
     setStreamUrl(json.url);
     setVideoSource(json.url); 
-    
+
     if (json.audioUrl) {
         await syncAudioRef.current.unloadAsync().catch(()=>{});
         syncAudioRef.current = new Audio.Sound();
@@ -343,14 +343,13 @@ export default function GlobalPlayer() {
     }
   };
 
-  // 🚨 ফিক্স ১: স্কিপিং এর সময় প্রসেসরের চাপ কমাতে await ব্লক রিমুভ করা হয়েছে 🚨
   const handleSkip = (amount, isSilent = false) => {
       let currentPosition = isAudioMode ? currentTime : (player ? player.currentTime : currentTime);
       let newTime = currentPosition + amount;
-      
+
       if (newTime < 0) newTime = 0;
       if (newTime > duration) newTime = duration;
-      
+
       isSyncingRef.current = true;
       setCurrentTime(newTime);
 
@@ -360,7 +359,7 @@ export default function GlobalPlayer() {
           player.currentTime = newTime; 
           if (streamMode === 'separate') syncAudioWithVideo(newTime); 
       }
-      
+
       if (!isSilent) triggerControls(); 
       setTimeout(() => { isSyncingRef.current = false; }, 500);
   };
@@ -368,7 +367,7 @@ export default function GlobalPlayer() {
   const handleTap = (side) => {
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300; 
-      
+
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
@@ -502,17 +501,19 @@ export default function GlobalPlayer() {
     onStartShouldSetPanResponder: () => false, 
     onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10,
     onPanResponderGrant: () => { pan.setOffset({ x: pan.x._value, y: pan.y._value }); pan.setValue({ x: 0, y: 0 }); },
-    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }), // এটি false রাখতে হবে প্যান রেসপন্ডারের নিয়মানুযায়ী
     onPanResponderRelease: () => {
       pan.flattenOffset();
       let x = pan.x._value, y = pan.y._value;
       if (x > 10) x = 10; if (x < -(PORTRAIT_WIDTH - MINI_WIDTH - 20)) x = -(PORTRAIT_WIDTH - MINI_WIDTH - 20);
       if (y > 20) y = 20; if (y < -(Dimensions.get('window').height - MINI_HEIGHT - 120)) y = -(Dimensions.get('window').height - MINI_HEIGHT - 120);
-      Animated.spring(pan, { toValue: { x, y }, friction: 6, useNativeDriver: false }).start();
+      
+      // 🚨 অপটিমাইজেশন: useNativeDriver: true করা হয়েছে
+      Animated.spring(pan, { toValue: { x, y }, friction: 6, useNativeDriver: true }).start();
     }
   })).current;
 
-  // 🚨 ফিক্স ১: CPU সেভার চেকার লুপে strict লক বসানো হয়েছে যাতে প্রসেসর ওভারলোড হয়ে ক্র্যাশ না করে 🚨
+  // 🚨 অপটিমাইজেশন: রি-রেন্ডার কমানোর জন্য শুধুমাত্র showControls true থাকলেই স্টেট আপডেট করা হয়েছে
   useEffect(() => {
     let isChecking = false; 
     const interval = setInterval(async () => {
@@ -524,23 +525,31 @@ export default function GlobalPlayer() {
                 const audioStatus = await syncAudioRef.current.getStatusAsync();
                 if (audioStatus.isLoaded) {
                     setIsPlayingUI(audioStatus.isPlaying);
-                    if (audioStatus.playableDurationMillis) setBuffered(audioStatus.playableDurationMillis / 1000);
-                    if (!isSlidingRef.current) {
-                        setCurrentTime(audioStatus.positionMillis / 1000);
-                        if (audioStatus.durationMillis) setDuration(audioStatus.durationMillis / 1000);
+                    
+                    // 🚨 শুধুমাত্র কন্ট্রোলস দৃশ্যমান থাকলে রেন্ডার হবে
+                    if (showControls) {
+                        if (audioStatus.playableDurationMillis) setBuffered(audioStatus.playableDurationMillis / 1000);
+                        if (!isSlidingRef.current) {
+                            setCurrentTime(audioStatus.positionMillis / 1000);
+                            if (audioStatus.durationMillis) setDuration(audioStatus.durationMillis / 1000);
+                        }
                     }
                 }
             } else {
                 setIsPlayingUI(player?.playing || false);
-                
+
                 if (player) {
-                    if (player.bufferedPosition) setBuffered(player.bufferedPosition); 
-                    if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
-                        setCurrentTime(player.currentTime);
-                        setDuration(player.duration > 0 ? player.duration : 1);
+                    // 🚨 শুধুমাত্র কন্ট্রোলস দৃশ্যমান থাকলে রেন্ডার হবে
+                    if (showControls) {
+                        if (player.bufferedPosition) setBuffered(player.bufferedPosition); 
+                        if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
+                            setCurrentTime(player.currentTime);
+                            setDuration(player.duration > 0 ? player.duration : 1);
+                        }
                     }
                 }
 
+                // 🚨 অডিও-ভিডিও সিঙ্কিং লজিক আগের মতোই রাখা হয়েছে
                 if (streamMode === 'separate' && videoSource) {
                     const audioStatus = await syncAudioRef.current.getStatusAsync();
                     if (audioStatus.isLoaded) {
@@ -557,11 +566,11 @@ export default function GlobalPlayer() {
                 }
             }
         } catch(e) {}
-        
+
         isChecking = false; 
     }, 1000);
     return () => clearInterval(interval);
-  }, [player, streamMode, isAudioMode, videoSource]);
+  }, [player, streamMode, isAudioMode, videoSource, showControls]); // 🚨 showControls ডিপেন্ডেন্সিতে যুক্ত করা হয়েছে
 
   const closePlayer = async () => {
       setPlayerState('hidden');
@@ -596,10 +605,10 @@ export default function GlobalPlayer() {
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
     >
       <View style={styles.videoWrapper}>
-        
+
         {streamUrl && !fallbackData && (
           <View style={{ flex: 1, width: '100%', height: '100%' }}>
-            
+
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
                     <VideoView 
@@ -637,14 +646,14 @@ export default function GlobalPlayer() {
 
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.controls} pointerEvents="box-none">
-             
+
              <View style={styles.topBar}>
                  <View style={{flex: 1}} />
                  <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsMenu(true)}>
                      <Ionicons name="settings-outline" size={28} color="#FFF" />
                  </TouchableOpacity>
              </View>
-             
+
              <View style={styles.centerRow} pointerEvents="box-none">
                 <TouchableOpacity onPress={async () => {
                     if (isAudioMode) {
@@ -668,7 +677,7 @@ export default function GlobalPlayer() {
 
              <View style={styles.bottomBar}>
                 <Text style={styles.timeTextLeft}>{formatTime(currentTime)}</Text>
-                
+
                 <View style={styles.sliderWrapper}>
                     <View style={styles.customTrackContainer}>
                         <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
@@ -684,7 +693,6 @@ export default function GlobalPlayer() {
                       }}
                       onValueChange={(v) => setCurrentTime(v)} 
                       onSlidingComplete={(v) => {
-                          // 🚨 স্লাইডারে স্কিপ করার সময়ও await রিমুভ করা হয়েছে 🚨
                           isSyncingRef.current = true;
                           if (isAudioMode) {
                               syncAudioRef.current.setPositionAsync(v * 1000).catch(()=>{});
@@ -703,7 +711,7 @@ export default function GlobalPlayer() {
                 </View>
 
                 <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
-                
+
                 <TouchableOpacity style={{marginLeft: 10}} onPress={toggleFullscreen}>
                     <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color="#FFF" />
                 </TouchableOpacity>
@@ -715,7 +723,7 @@ export default function GlobalPlayer() {
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
-                    
+
                     <TouchableOpacity style={styles.menuItem} onPress={async () => {
                         setShowSettingsMenu(false);
                         const ytUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`; 
@@ -772,7 +780,7 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
           </View>
         )}
-        
+
         {!isInteractiveFull && (
             <TouchableOpacity activeOpacity={0.9} style={styles.miniTouchableArea} onPress={() => {
                 if (videoData) {
@@ -815,27 +823,26 @@ const styles = StyleSheet.create({
   fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
-  
+
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
   animatedVideoWrapper: { flex: 1, width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
   video: { flex: 1, width: '100%', height: '100%' },
-  
+
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  
+
   topBar: { position: 'absolute', top: 10, left: 10, right: 15, flexDirection: 'row', justifyContent: 'space-between', zIndex: 20 },
   iconBtn: { padding: 5 },
-  
+
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
-  
+
   timeTextLeft: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
   timeTextRight: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
-  
+
   sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 },
-  
-  // 🚨 ফিক্স ৩: সবুজ বাফার দাগটিকে একদম স্লাইডারের লাল দাগের নিচে বসানো হয়েছে 🚨
+
   customTrackContainer: { position: 'absolute', top: 18.5, left: Platform.OS === 'android' ? 14 : 0, right: Platform.OS === 'android' ? 14 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
   bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 },
 
@@ -850,7 +857,7 @@ const styles = StyleSheet.create({
   fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 },
   btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
   btnText: { color: '#FFF', fontWeight: 'bold' },
-  
+
   miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 },
   miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' },
   miniCtrlBtn: { padding: 5, marginHorizontal: 3 },
