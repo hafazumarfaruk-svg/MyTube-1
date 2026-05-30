@@ -22,7 +22,7 @@ const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
-// 🚨 [FIX] Getter-Only এরর সমাধানের জন্য সেফটি ফাংশন
+// 🚨 Getter-Only এরর সমাধানের জন্য সেফটি ফাংশন 🚨
 const safeSeek = (p, targetSec) => {
     if (!p) return;
     try {
@@ -60,7 +60,7 @@ const safeSetMuted = (p, isMuted) => {
 export default function GlobalPlayer() {
   const navigation = useNavigation();
   const videoViewRef = useRef(null); 
-  const syncAudioRef = useRef(null); 
+  const syncAudioRef = useRef(null); // expo-audio এর জন্য null রাখা হলো
   
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
@@ -104,23 +104,10 @@ export default function GlobalPlayer() {
   const streamModeRef = useRef('combined');
   const cachedAudioUrlRef = useRef(null); 
   
+  // 🚨 CPU সেভার: একই সাথে একাধিক সিঙ্ক কমান্ড যেন না যায় তার জন্য লক 🚨
   const isSyncingRef = useRef(false);
-  const pendingSeekRef = useRef(null); 
 
-  useEffect(() => {
-    const setupAudio = async () => {
-      try {
-        await setAudioModeAsync({
-          staysActiveInBackground: true,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-        });
-      } catch (e) { console.log("Audio Setup Error:", e); }
-    };
-    setupAudio();
-  }, []);
-
+  // expo-audio ক্লিনআপ ফাংশন
   const safeReleaseAudio = () => {
       if (syncAudioRef.current) {
           try { syncAudioRef.current.release(); } catch(e) {}
@@ -128,6 +115,7 @@ export default function GlobalPlayer() {
       }
   };
 
+  // 🚨 ক্র্যাশ ফিক্স ১: এখান থেকে setTimeout বা অন্যান্য ভারী কাজ পুরোপুরি সরানো হয়েছে 🚨
   const player = useVideoPlayer(videoSource, (p) => {
     if (!videoSource) return; 
     try { p.loop = false; } catch(e) {}
@@ -144,17 +132,25 @@ export default function GlobalPlayer() {
   };
 
   useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        await setAudioModeAsync({
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (e) { console.log("Audio Setup Error:", e); }
+    };
+    setupAudio();
+  }, []);
+
+  useEffect(() => {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
         if (nextAppState.match(/inactive|background/)) {
             if (!isAudioModeRef.current) {
-                try {
-                    if (player && player.playing) player.pause();
-                } catch(e) {}
-                try {
-                    if (syncAudioRef.current && syncAudioRef.current.playing) {
-                        syncAudioRef.current.pause();
-                    }
-                } catch(e) {}
+                try { if (player && player.playing) player.pause(); } catch(e) {}
+                try { if (syncAudioRef.current && syncAudioRef.current.playing) syncAudioRef.current.pause(); } catch(e) {}
             }
         }
     });
@@ -234,18 +230,19 @@ export default function GlobalPlayer() {
     } catch (error) { console.log(error); }
   };
 
-  const seekTo = async (newTime) => {
-      setCurrentTime(newTime); 
-      try {
-          if (isAudioModeRef.current) {
-              safeSeek(syncAudioRef.current, newTime); 
-          } else {
-              safeSeek(player, newTime); 
-              if (streamModeRef.current === 'separate' && syncAudioRef.current) {
-                  safeSeek(syncAudioRef.current, newTime); 
+  // 🚨 Helper: ভিডিওর সাথে অডিও সিঙ্ক করানো (expo-audio) 🚨
+  const syncAudioWithVideo = (targetPositionSeconds) => {
+      if (syncAudioRef.current) {
+          safeSeek(syncAudioRef.current, targetPositionSeconds);
+          try {
+              let isPlayerPlaying = false;
+              try { isPlayerPlaying = player && player.playing; } catch(e){}
+              
+              if (isPlayerPlaying && !syncAudioRef.current.playing) {
+                  syncAudioRef.current.play();
               }
-          }
-      } catch (error) { console.log("Seek Error: ", error); }
+          } catch(e) {}
+      }
   };
 
   useEffect(() => {
@@ -269,7 +266,6 @@ export default function GlobalPlayer() {
       setIsAudioMode(false);
       isAudioModeRef.current = false;
       cachedAudioUrlRef.current = null;
-      pendingSeekRef.current = null;
       
       setCurrentTime(0);
       setBuffered(0);
@@ -295,30 +291,29 @@ export default function GlobalPlayer() {
               resumeTimeRef.current = currentTime;
           }
           setVideoSource(null); 
-          setIsPlayingUI(true); 
+          setIsPlayingUI(false); 
+          
+          let audioUrlToPlay = cachedAudioUrlRef.current;
 
-          if (streamModeRef.current === 'separate' && syncAudioRef.current) {
-              if (!syncAudioRef.current.playing) syncAudioRef.current.play();
-          } else {
-              let audioUrlToPlay = cachedAudioUrlRef.current;
-              if (!audioUrlToPlay) {
-                  try {
-                      const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`)}&action=play&type=audio`);
-                      const json = await res.json();
-                      if (json.success && (json.audioUrl || json.url)) {
-                          audioUrlToPlay = json.audioUrl || json.url;
-                          cachedAudioUrlRef.current = audioUrlToPlay; 
-                      }
-                  } catch (e) {}
-              }
-              if (audioUrlToPlay) {
-                  safeReleaseAudio();
-                  syncAudioRef.current = createAudioPlayer(audioUrlToPlay);
-                  pendingSeekRef.current = resumeTimeRef.current; 
-                  safeSetRate(syncAudioRef.current, currentSpeed); 
-                  syncAudioRef.current.play();
-              }
+          if (!audioUrlToPlay) {
+              try {
+                  const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`)}&action=play&type=audio`);
+                  const json = await res.json();
+                  if (json.success && (json.audioUrl || json.url)) {
+                      audioUrlToPlay = json.audioUrl || json.url;
+                      cachedAudioUrlRef.current = audioUrlToPlay; 
+                  }
+              } catch (e) {}
           }
+
+          if (audioUrlToPlay) {
+              safeReleaseAudio();
+              syncAudioRef.current = createAudioPlayer(audioUrlToPlay);
+              safeSetRate(syncAudioRef.current, currentSpeed);
+              safeSeek(syncAudioRef.current, resumeTimeRef.current);
+              syncAudioRef.current.play();
+          }
+
       } else {
           let resumeVideoTime = resumeTimeRef.current;
 
@@ -342,6 +337,7 @@ export default function GlobalPlayer() {
     };
   }, [isFullscreen, streamUrl]);
 
+  // 🚨 ক্র্যাশ ফিক্স ২: প্লেয়ার শুধু এখান থেকেই রেডি হবে 🚨
   useEffect(() => {
       let timeoutId;
       if (!isAudioMode && videoSource && player) {
@@ -358,9 +354,7 @@ export default function GlobalPlayer() {
                       safeSeek(syncAudioRef.current, resumeTimeRef.current);
                       syncAudioRef.current.play();
                   }
-              } catch (e) {
-                  console.log("Playback start error, player might be released:", e);
-              }
+              } catch (e) { console.log("Resume Error: ", e); }
           }, 800); 
       }
       return () => clearTimeout(timeoutId);
@@ -421,7 +415,14 @@ export default function GlobalPlayer() {
       if (newTime < 0) newTime = 0;
       if (newTime > duration) newTime = duration;
       
-      await seekTo(newTime);
+      if (isAudioMode && syncAudioRef.current) {
+          safeSeek(syncAudioRef.current, newTime);
+      } else if (player) {
+          safeSeek(player, newTime);
+          if (streamMode === 'separate') syncAudioWithVideo(newTime);
+      }
+      
+      setCurrentTime(newTime);
       if (!isSilent) triggerControls(); 
   };
 
@@ -454,6 +455,7 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
+  // 🚨 ক্র্যাশ ফিক্স ৩: CPU সেভার সিঙ্ক অপ্টিমাইজেশন (expo-audio এর জন্য) 🚨
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -464,12 +466,7 @@ export default function GlobalPlayer() {
                 const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
                 if (isAudioReady) {
                     setIsPlayingUI(syncAudioRef.current.playing);
-
-                    if (pendingSeekRef.current !== null) {
-                        safeSeek(syncAudioRef.current, pendingSeekRef.current);
-                        setCurrentTime(pendingSeekRef.current);
-                        pendingSeekRef.current = null;
-                    } else if (!isSlidingRef.current) {
+                    if (!isSlidingRef.current) {
                         setCurrentTime(syncAudioRef.current.currentTime);
                         if (syncAudioRef.current.duration > 0) setDuration(syncAudioRef.current.duration);
                     }
@@ -483,12 +480,10 @@ export default function GlobalPlayer() {
                 if (player) {
                     if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
                         setCurrentTime(player.currentTime);
-                        if (player.duration > 0) setDuration(player.duration);
+                        setDuration(player.duration > 0 ? player.duration : 1);
                     }
                 }
-            } catch(e) {
-                // Ignore getter errors when player is released
-            }
+            } catch(e) {}
 
             if (streamMode === 'separate' && videoSource) {
                 isSyncingRef.current = true;
@@ -504,7 +499,7 @@ export default function GlobalPlayer() {
 
                         if (isPlayerPlaying) {
                             const diff = Math.abs(playerCurrentTime - syncAudioRef.current.currentTime);
-                            if (diff > 1.5) { 
+                            if (diff > 0.8) { // 800ms ডিফারেন্স হলে সিঙ্ক করবে (CPU সেভার)
                                 safeSeek(syncAudioRef.current, playerCurrentTime); 
                             }
                             if (!syncAudioRef.current.playing) syncAudioRef.current.play();
@@ -651,6 +646,7 @@ export default function GlobalPlayer() {
                 ) : null}
             </Animated.View>
 
+            {/* 🚨 ক্র্যাশ ফিক্স ৪: CPU সাশ্রয়ী অপাসিটি ব্যাকগ্রাউন্ড (Blur সরানো হয়েছে) 🚨 */}
             {isAudioMode && (
                 <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', zIndex: 2, backgroundColor: '#000' }]}>
                     <Image 
@@ -681,6 +677,14 @@ export default function GlobalPlayer() {
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.controls} pointerEvents="box-none">
              
+             {/* 🚨 নতুন TopBar: Settings আইকনটি এখন উপরে 🚨 */}
+             <View style={styles.topBar}>
+                 <View style={{flex: 1}} />
+                 <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsMenu(true)}>
+                     <Ionicons name="settings-outline" size={28} color="#FFF" />
+                 </TouchableOpacity>
+             </View>
+             
              <View style={styles.centerRow} pointerEvents="box-none">
                 <TouchableOpacity onPress={async () => {
                     if (isAudioMode) {
@@ -697,9 +701,7 @@ export default function GlobalPlayer() {
                                 if (typeof player.play === 'function') player.play();
                                 if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
                             }
-                        } catch(e) {
-                            console.log("Player toggle error:", e);
-                        }
+                        } catch(e) { console.log("Player toggle error:", e); }
                     }
                     triggerControls();
                 }}>
@@ -725,7 +727,12 @@ export default function GlobalPlayer() {
                       }}
                       onValueChange={(v) => setCurrentTime(v)} 
                       onSlidingComplete={async (v) => {
-                          await seekTo(v);
+                          if (isAudioMode && syncAudioRef.current) {
+                              safeSeek(syncAudioRef.current, v);
+                          } else if (player) {
+                              safeSeek(player, v);
+                              if (streamMode === 'separate') syncAudioWithVideo(v);
+                          }
                           isSlidingRef.current = false; 
                           triggerControls();
                       }}
@@ -737,12 +744,9 @@ export default function GlobalPlayer() {
 
                 <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
                 
-                <TouchableOpacity style={{marginLeft: 12}} onPress={() => setShowSettingsMenu(true)}>
-                    <Ionicons name="settings-outline" size={22} color="#FFF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity style={{marginLeft: 12}} onPress={toggleFullscreen}>
-                    <Ionicons name={isFullscreen ? "contract" : "expand"} size={22} color="#FFF" />
+                {/* 🚨 Settings আইকনটি টপ বারে নিয়ে যাওয়া হয়েছে, তাই নিচ থেকে সরিয়ে ফুলস্ক্রিন বাটনটি ঠিক রাখা হয়েছে 🚨 */}
+                <TouchableOpacity style={{marginLeft: 10}} onPress={toggleFullscreen}>
+                    <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color="#FFF" />
                 </TouchableOpacity>
              </View>
           </View>
@@ -856,9 +860,7 @@ export default function GlobalPlayer() {
                                     if (typeof player.play === 'function') player.play();
                                     if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
                                 }
-                            } catch(e) {
-                                console.log("Player toggle error:", e);
-                            }
+                            } catch(e) {}
                         }
                     }}>
                         <Ionicons name={isPlayingUI ? "pause" : "play"} size={22} color="#FFF" />
@@ -888,6 +890,9 @@ const styles = StyleSheet.create({
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  
+  topBar: { position: 'absolute', top: 10, left: 10, right: 15, flexDirection: 'row', justifyContent: 'space-between', zIndex: 20 },
+  iconBtn: { padding: 5 },
   
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
